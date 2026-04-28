@@ -1,0 +1,44 @@
+{
+  "name": "praxnest",
+  "version": "0.1.0",
+  "description": "Local-first team AI workspace — collaborative markdown + PRD/bug/test workflows + team memory, on-prem deployable.",
+  "bin": {
+    "praxnest": "bin/praxnest.js"
+  },
+  "scripts": {
+    "postinstall": "node -e \"try{require('child_process').execFileSync('python3',['--version'],{stdio:'ignore'})}catch{console.log('\\nNote: Python 3.10+ is required at runtime. Install from https://www.python.org/downloads/\\n')}\""
+  },
+  "keywords": [
+    "team-collaboration",
+    "ai",
+    "knowledge-base",
+    "obsidian-alternative",
+    "prd",
+    "local-first",
+    "prax"
+  ],
+  "author": "Prax Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChanningLua/praxnest.git"
+  },
+  "homepage": "https://github.com/ChanningLua/praxnest",
+  "bugs": {
+    "url": "https://github.com/ChanningLua/praxnest/issues"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "peerDependencies": {
+    "praxagent": ">=0.7.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "!**/__pycache__",
+    "!**/*.pyc"
+  ]
+}

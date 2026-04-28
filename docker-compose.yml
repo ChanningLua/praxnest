@@ -1,0 +1,37 @@
+# praxnest 一键部署 — 内网团队协作。
+#
+# 使用：
+#   1. cp .env.example .env   # 不需要也可以直接跑（默认值就够了）
+#   2. docker-compose up -d
+#   3. docker-compose exec praxnest python -m praxnest init --admin-username admin
+#   4. 浏览器打开 http://<this-host>:7878 → 用上面创的 admin 账号登录
+#
+# 数据持久化：
+#   ./data/  ← SQLite db、session secret、上传文件都在这里
+#   备份：直接打包整个 data 目录即可。
+
+version: "3.9"
+
+services:
+  praxnest:
+    build: .
+    image: praxnest:0.1.0
+    container_name: praxnest
+    restart: unless-stopped
+
+    # 默认 7878 是 praxdaily 的端口；praxnest 也用 7878 方便记忆。
+    # 如果同机已经跑 praxdaily，把左边改成别的（比如 7979:7878）。
+    ports:
+      - "7878:7878"
+
+    volumes:
+      - ./data:/app/data
+
+    # 默认绑 0.0.0.0 让局域网能访问 — 部署本地团队场景的预期姿势。
+    # 如果只想给本机用，改成 -- --host 127.0.0.1。
+    command: >
+      python -m praxnest serve
+      --host 0.0.0.0
+      --port 7878
+      --no-open
+      --data-dir /app/data

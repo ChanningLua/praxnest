@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>praxnest</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- CodeMirror 6 via JSDelivr ESM bundle. v6 ships as ESM modules; we
+       use the prebuilt 'codemirror' meta-package which re-exports core +
+       a small set of extensions, keeping the include surface small. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "codemirror": "https://esm.sh/codemirror@6.0.1?bundle",
+        "@codemirror/lang-markdown": "https://esm.sh/@codemirror/lang-markdown@6.2.5?bundle",
+        "@codemirror/view": "https://esm.sh/@codemirror/view@6.26.3?bundle",
+        "@codemirror/state": "https://esm.sh/@codemirror/state@6.4.1?bundle",
+        "vue": "https://unpkg.com/vue@3.4.27/dist/vue.global.prod.js"
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/vue@3.4.27/dist/vue.global.prod.js"></script>
+  <style>
+    :root {
+      --bg: #04050a;
+      --bg-card: rgba(255, 255, 255, 0.03);
+      --bg-input: rgba(0, 0, 0, 0.3);
+      --ink: #e7eaf3;
+      --muted: #8e95a8;
+      --acc: #6ee7ff;
+      --acc-fade: rgba(110, 231, 255, 0.15);
+      --ok: #3dde9d;
+      --warn: #f59e0b;
+      --danger: #ff6d8d;
+      --border: rgba(255, 255, 255, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #04050a 0%, #0a0d18 100%);
+      color: var(--ink);
+      font-size: 14px;
+    }
+    code, pre, .mono { font-family: "SF Mono", "JetBrains Mono", Menlo, monospace; }
+
+    /* ── Login screen ─────────────────────────────────────────── */
+    .login-shell { min-height: 100vh; display: grid; place-items: center; }
+    .login-card {
+      width: 100%; max-width: 380px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 32px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .login-card h1 { margin: 0 0 4px; font-size: 22px; }
+    .subtitle { color: var(--muted); font-size: 13px; }
+
+    label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 6px; }
+    input, select, textarea {
+      width: 100%; padding: 8px 10px;
+      background: var(--bg-input); color: var(--ink);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--acc); }
+    button {
+      padding: 8px 14px;
+      background: var(--acc); color: #04050a; border: 0;
+      border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--border); }
+    button.danger { background: transparent; color: var(--danger); border: 1px solid var(--border); }
+    .login-card button { width: 100%; margin-top: 18px; padding: 11px 16px; font-size: 14px; }
+    .err { color: var(--danger); font-size: 12px; margin-top: 8px; min-height: 1em; }
+    .ok { color: var(--ok); font-size: 12px; margin-top: 8px; min-height: 1em; }
+    code {
+      background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px;
+      font-size: 12px;
+    }
+
+    /* ── Main app shell ───────────────────────────────────────── */
+    .app-shell {
+      display: grid;
+      grid-template-columns: 280px 1fr 240px;
+      grid-template-rows: 48px 1fr;
+      grid-template-areas:
+        "topbar topbar topbar"
+        "sidebar editor backlinks";
+      height: 100vh;
+    }
+    .topbar {
+      grid-area: topbar; display: flex; align-items: center;
+      padding: 0 16px; gap: 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,0.2);
+    }
+    .topbar .brand { font-weight: 700; letter-spacing: 0.04em; }
+    .topbar .ws-picker { flex: 0 0 auto; }
+    .topbar .search { flex: 1; max-width: 480px; }
+    .topbar .right { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--muted); }
+    .topbar input { padding: 5px 10px; font-size: 12px; }
+
+    .sidebar {
+      grid-area: sidebar;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .sidebar .group-title {
+      padding: 8px 14px 4px;
+      color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .sidebar .note-row {
+      padding: 5px 14px; cursor: pointer;
+      font-size: 13px; color: var(--ink);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .sidebar .note-row:hover { background: rgba(255,255,255,0.04); }
+    .sidebar .note-row.active { background: var(--acc-fade); color: var(--acc); }
+    .sidebar .folder-label {
+      padding: 8px 14px 2px;
+      color: var(--muted); font-size: 11px;
+    }
+
+    .editor-area {
+      grid-area: editor; display: flex; flex-direction: column; min-width: 0;
+    }
+    .editor-header {
+      padding: 12px 24px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .editor-header input.title-input {
+      border: 0; background: transparent; padding: 0; font-size: 22px; font-weight: 600;
+      color: var(--ink); flex: 1;
+    }
+    .editor-header input.title-input:focus { outline: none; }
+    .editor-status { color: var(--muted); font-size: 12px; }
+    .editor-status.saving { color: var(--warn); }
+    .editor-status.saved { color: var(--ok); }
+    .editor-status.conflict { color: var(--danger); }
+
+    .editor-pane { flex: 1; overflow: hidden; }
+    .cm-editor { height: 100%; font-size: 14px; }
+    .cm-editor .cm-content { font-family: "SF Mono", monospace; padding: 16px 24px; }
+    .cm-editor .cm-gutters { background: transparent; border-right: 1px solid var(--border); }
+    .cm-editor .cm-activeLine { background: rgba(255,255,255,0.02); }
+    .cm-editor .cm-activeLineGutter { background: transparent; color: var(--ink); }
+    .cm-editor.cm-focused { outline: none; }
+    .cm-editor .cm-line { color: var(--ink); }
+    .cm-editor .cm-cursor { border-left-color: var(--acc); }
+    .cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground {
+      background: rgba(110, 231, 255, 0.2) !important;
+    }
+
+    .backlinks-pane {
+      grid-area: backlinks;
+      border-left: 1px solid var(--border);
+      padding: 16px; overflow-y: auto;
+    }
+    .backlinks-pane h3 {
+      margin: 0 0 12px; font-size: 12px; text-transform: uppercase;
+      color: var(--muted); letter-spacing: 0.06em;
+    }
+    .backlink-row {
+      padding: 6px 8px; cursor: pointer; border-radius: 4px;
+      font-size: 13px;
+    }
+    .backlink-row:hover { background: rgba(255,255,255,0.04); }
+
+    .empty-state {
+      padding: 60px 24px; text-align: center; color: var(--muted);
+    }
+    .empty-state h3 { color: var(--ink); margin-bottom: 8px; }
+
+    /* Search results dropdown */
+    .search-wrapper { position: relative; flex: 1; max-width: 480px; }
+    .search-results {
+      position: absolute; top: 100%; left: 0; right: 0;
+      background: rgba(10, 13, 24, 0.98); border: 1px solid var(--border);
+      border-radius: 8px; margin-top: 4px;
+      max-height: 360px; overflow-y: auto;
+      z-index: 100;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    }
+    .search-result {
+      padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+    }
+    .search-result:last-child { border-bottom: 0; }
+    .search-result:hover { background: rgba(255,255,255,0.04); }
+    .search-result .title { font-size: 13px; }
+    .search-result .snippet { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .search-result .snippet mark {
+      background: var(--acc-fade); color: var(--acc); padding: 0 2px; border-radius: 2px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      display: grid; place-items: center;
+      z-index: 200;
+    }
+    .modal {
+      background: rgba(10, 13, 24, 0.98); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; min-width: 360px; max-width: 480px;
+    }
+    .modal h2 { margin: 0 0 12px; font-size: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 20px; right: 20px;
+      background: rgba(10, 13, 24, 0.98); border: 1px solid var(--border);
+      border-left: 3px solid var(--acc);
+      border-radius: 8px; padding: 10px 14px; font-size: 13px;
+      max-width: 360px; z-index: 300;
+    }
+    .toast.error { border-left-color: var(--danger); }
+    .toast.warn { border-left-color: var(--warn); }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script type="module">
+    import { EditorView, basicSetup } from "codemirror";
+    import { EditorState } from "@codemirror/state";
+    import { markdown } from "@codemirror/lang-markdown";
+    window.__cm = { EditorView, EditorState, basicSetup, markdown };
+  </script>
+
+  <script>
+    /* eslint-disable */
+    const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
+
+    /* ── Login screen ────────────────────────────────────────────────── */
+
+    const LoginScreen = {
+      template: `
+        <div class="login-shell">
+          <div class="login-card">
+            <h1>praxnest</h1>
+            <div class="subtitle">本地团队 AI 协作空间</div>
+            <form @submit.prevent="submit">
+              <label>用户名</label>
+              <input v-model="username" autofocus autocomplete="username" />
+              <label>密码</label>
+              <input v-model="password" type="password" autocomplete="current-password" />
+              <button type="submit" :disabled="busy">{{ busy ? '登录中…' : '登录' }}</button>
+              <div class="err">{{ error }}</div>
+            </form>
+            <div class="subtitle" style="margin-top: 16px; text-align: center;">
+              第一次跑？终端里执行 <code>praxnest init</code> 创建 admin 账号。
+            </div>
+          </div>
+        </div>
+      `,
+      emits: ['logged-in'],
+      setup(_, { emit }) {
+        const username = ref('');
+        const password = ref('');
+        const busy = ref(false);
+        const error = ref('');
+        const submit = async () => {
+          busy.value = true; error.value = '';
+          try {
+            const r = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ username: username.value, password: password.value }),
+            });
+            if (r.ok) { emit('logged-in', await r.json()); return; }
+            error.value = (await r.json().catch(() => ({}))).detail || `登录失败 (HTTP ${r.status})`;
+          } catch (e) { error.value = '请求出错：' + e.message; }
+          finally { busy.value = false; }
+        };
+        return { username, password, busy, error, submit };
+      },
+    };
+
+    /* ── Workspace shell ─────────────────────────────────────────────── */
+
+    const App = {
+      template: `
+        <login-screen v-if="!me" @logged-in="onLoggedIn" />
+        <div v-else class="app-shell">
+          <!-- topbar -->
+          <div class="topbar">
+            <div class="brand">praxnest</div>
+
+            <select v-model="activeWorkspaceId" class="ws-picker" @change="onWorkspaceChange">
+              <option v-for="w in workspaces" :key="w.id" :value="w.id">{{ w.name }}</option>
+              <option value="__new__">+ 新工作空间</option>
+            </select>
+
+            <div class="search-wrapper">
+              <input v-model="searchQuery" @input="onSearchInput" @focus="searchFocused = true"
+                     @blur="setTimeout(() => searchFocused = false, 200)"
+                     placeholder="🔎 搜索笔记内容（FTS5）" />
+              <div v-if="searchFocused && searchResults.length" class="search-results">
+                <div v-for="r in searchResults" :key="r.id"
+                     class="search-result" @mousedown="openSearchHit(r)">
+                  <div class="title">{{ r.title }}</div>
+                  <div class="snippet" v-html="r.snippet"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="right">
+              <span class="mono">{{ me.username }}</span>
+              <button class="secondary" @click="logout">登出</button>
+            </div>
+          </div>
+
+          <!-- sidebar (notes tree) -->
+          <div class="sidebar">
+            <div class="group-title" style="display:flex; justify-content:space-between; align-items:center;">
+              <span>笔记</span>
+              <button class="secondary" style="padding:2px 8px;font-size:11px;" @click="createNotePrompt">
+                +
+              </button>
+            </div>
+            <template v-for="(group, folder) in groupedNotes" :key="folder">
+              <div class="folder-label">{{ folder || '/' }}</div>
+              <div v-for="n in group" :key="n.id"
+                   class="note-row" :class="{active: activeNote && activeNote.id === n.id}"
+                   @click="openNote(n.id)">
+                <span>📄</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ n.title }}</span>
+              </div>
+            </template>
+            <div v-if="!notes.length" class="empty-state" style="padding:20px 14px;font-size:12px;">
+              还没有笔记。点上面的「+」新建。
+            </div>
+          </div>
+
+          <!-- editor -->
+          <div class="editor-area">
+            <div v-if="activeNote" class="editor-header">
+              <input class="title-input" v-model="activeNoteTitle" @blur="renameIfChanged" />
+              <span class="editor-status" :class="saveStateClass">{{ saveStateLabel }}</span>
+              <button class="danger" @click="deleteNote">删除</button>
+            </div>
+            <div class="editor-pane" ref="editorPane">
+              <div v-if="!activeNote" class="empty-state">
+                <h3>选一篇笔记开始</h3>
+                <p>左侧栏点击笔记，或点 + 新建。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- backlinks panel -->
+          <div class="backlinks-pane">
+            <h3>反向引用</h3>
+            <div v-if="!activeNote" style="font-size:12px;color:var(--muted);">
+              选中一篇笔记后这里会列出哪些笔记 [[链接]] 到它。
+            </div>
+            <div v-else>
+              <div v-if="!backlinks.length" style="font-size:12px;color:var(--muted);">
+                还没有其他笔记引用这篇。在别的笔记里写 <code>[[{{ activeNote.title }}]]</code> 试试。
+              </div>
+              <div v-for="b in backlinks" :key="b.id" class="backlink-row" @click="openNote(b.id)">
+                {{ b.title }}
+                <div style="font-size:11px;color:var(--muted);">{{ b.folder_path || '/' }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- New workspace modal -->
+        <div v-if="newWsModal.open" class="modal-overlay" @click.self="newWsModal.open = false">
+          <div class="modal">
+            <h2>新工作空间</h2>
+            <input v-model="newWsModal.name" placeholder="名称（如 Engineering）" autofocus
+                   @keydown.enter="confirmNewWorkspace" />
+            <div class="err">{{ newWsModal.error }}</div>
+            <div class="modal-actions">
+              <button class="secondary" @click="newWsModal.open = false">取消</button>
+              <button @click="confirmNewWorkspace" :disabled="!newWsModal.name.trim()">创建</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Conflict modal -->
+        <div v-if="conflictModal.open" class="modal-overlay" @click.self="conflictModal.open = false">
+          <div class="modal" style="max-width: 600px;">
+            <h2>⚠ 别人也改了这篇笔记</h2>
+            <p style="color:var(--muted);font-size:13px;">
+              当你打开这篇笔记后（v{{ conflictModal.your_base_version }}），有人保存了 v{{ conflictModal.their_version }}。
+              选择保留谁的版本：
+            </p>
+            <div style="font-size:12px;margin-top:12px;color:var(--muted);">他们写的：</div>
+            <pre style="background:var(--bg-input);padding:8px;border-radius:4px;max-height:160px;overflow:auto;font-size:12px;white-space:pre-wrap;">{{ conflictModal.their_body }}</pre>
+            <div class="modal-actions">
+              <button class="secondary" @click="conflictModal.open = false">取消（什么都不做）</button>
+              <button @click="conflictAcceptTheirs">用他们的</button>
+              <button @click="conflictForceMine">用我的覆盖</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Toast -->
+        <div v-if="toast.message" :class="['toast', toast.kind]">{{ toast.message }}</div>
+      `,
+      components: { LoginScreen },
+      setup() {
+        const me = ref(null);
+        const workspaces = ref([]);
+        const activeWorkspaceId = ref(null);
+        const notes = ref([]);
+        const activeNote = ref(null);
+        const activeNoteTitle = ref('');
+        const backlinks = ref([]);
+        const saveState = ref('idle');  // idle | dirty | saving | saved | conflict
+        const editorPane = ref(null);
+        let cmView = null;
+        let saveTimer = null;
+        let lastSavedBody = '';
+        const searchQuery = ref('');
+        const searchResults = ref([]);
+        const searchFocused = ref(false);
+        let searchTimer = null;
+        const newWsModal = reactive({ open: false, name: '', error: '' });
+        const conflictModal = reactive({ open: false, your_base_version: 0, their_version: 0, their_body: '' });
+        const toast = reactive({ message: '', kind: 'info' });
+
+        const showToast = (message, kind = 'info', timeout = 3000) => {
+          toast.message = message; toast.kind = kind;
+          setTimeout(() => { toast.message = ''; }, timeout);
+        };
+
+        // ── auth bootstrap ────────────────────────────────────────────
+        const fetchMe = async () => {
+          try {
+            const r = await fetch('/api/auth/me', { credentials: 'same-origin' });
+            if (r.ok) { me.value = await r.json(); return true; }
+          } catch {}
+          me.value = null;
+          return false;
+        };
+        const onLoggedIn = (user) => { me.value = user; loadWorkspaces(); };
+        const logout = async () => {
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+          me.value = null; workspaces.value = []; activeWorkspaceId.value = null;
+          notes.value = []; activeNote.value = null;
+          if (cmView) { cmView.destroy(); cmView = null; }
+        };
+
+        // ── workspaces ────────────────────────────────────────────────
+        const loadWorkspaces = async () => {
+          const r = await fetch('/api/workspaces', { credentials: 'same-origin' });
+          const data = await r.json();
+          workspaces.value = data.workspaces || [];
+          if (workspaces.value.length === 0) {
+            // First-run UX: open the new-workspace modal automatically.
+            newWsModal.open = true;
+          } else if (!activeWorkspaceId.value || !workspaces.value.find(w => w.id === activeWorkspaceId.value)) {
+            activeWorkspaceId.value = workspaces.value[0].id;
+            await loadNotes();
+          }
+        };
+        const onWorkspaceChange = async () => {
+          if (activeWorkspaceId.value === '__new__') {
+            newWsModal.open = true;
+            // Reset to current valid choice while modal handles creation.
+            activeWorkspaceId.value = workspaces.value[0]?.id ?? null;
+            return;
+          }
+          activeNote.value = null;
+          await loadNotes();
+        };
+        const confirmNewWorkspace = async () => {
+          const name = newWsModal.name.trim();
+          if (!name) return;
+          const r = await fetch('/api/workspaces', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({ name }),
+          });
+          if (!r.ok) {
+            newWsModal.error = (await r.json().catch(() => ({}))).detail || '创建失败';
+            return;
+          }
+          const ws = await r.json();
+          newWsModal.open = false; newWsModal.name = ''; newWsModal.error = '';
+          await loadWorkspaces();
+          activeWorkspaceId.value = ws.id;
+          await loadNotes();
+        };
+
+        // ── notes ─────────────────────────────────────────────────────
+        const loadNotes = async () => {
+          if (!activeWorkspaceId.value) return;
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes`, { credentials: 'same-origin' });
+          const data = await r.json();
+          notes.value = data.notes || [];
+        };
+        const groupedNotes = computed(() => {
+          const groups = {};
+          for (const n of notes.value) {
+            const folder = n.folder_path || '';
+            if (!groups[folder]) groups[folder] = [];
+            groups[folder].push(n);
+          }
+          return groups;
+        });
+
+        const createNotePrompt = async () => {
+          const title = window.prompt('笔记标题');
+          if (!title || !title.trim()) return;
+          const folder = window.prompt('文件夹路径（留空 = 根目录）', '') || '';
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ title: title.trim(), folder_path: folder.trim(), body_md: '' }),
+          });
+          if (!r.ok) { showToast('创建失败：' + ((await r.json()).detail || r.statusText), 'error'); return; }
+          const note = await r.json();
+          await loadNotes();
+          openNote(note.id);
+        };
+
+        const openNote = async (note_id) => {
+          if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await saveNow(); }
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes/${note_id}`, { credentials: 'same-origin' });
+          if (!r.ok) { showToast('读取失败', 'error'); return; }
+          activeNote.value = await r.json();
+          activeNoteTitle.value = activeNote.value.title;
+          lastSavedBody = activeNote.value.body_md;
+          saveState.value = 'idle';
+          await nextTick();
+          mountEditor();
+          loadBacklinks();
+        };
+
+        const mountEditor = () => {
+          if (cmView) { cmView.destroy(); cmView = null; }
+          if (!activeNote.value || !editorPane.value || !window.__cm) return;
+          const { EditorView, EditorState, basicSetup, markdown } = window.__cm;
+          cmView = new EditorView({
+            parent: editorPane.value,
+            state: EditorState.create({
+              doc: activeNote.value.body_md,
+              extensions: [
+                basicSetup,
+                markdown(),
+                EditorView.theme({}, { dark: true }),
+                EditorView.updateListener.of((v) => {
+                  if (v.docChanged) onBodyChange();
+                }),
+              ],
+            }),
+          });
+        };
+
+        const onBodyChange = () => {
+          saveState.value = 'dirty';
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveNow, 1000);
+        };
+
+        const saveNow = async () => {
+          if (!activeNote.value || !cmView) return;
+          const body = cmView.state.doc.toString();
+          if (body === lastSavedBody && activeNoteTitle.value === activeNote.value.title) {
+            saveState.value = 'saved'; return;
+          }
+          saveState.value = 'saving';
+          const note_id = activeNote.value.id;
+          const expected_version = activeNote.value.version;
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes/${note_id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              expected_version,
+              body_md: body,
+              title: activeNoteTitle.value,
+            }),
+          });
+          if (r.status === 409) {
+            const detail = (await r.json()).detail;
+            saveState.value = 'conflict';
+            conflictModal.open = true;
+            conflictModal.your_base_version = expected_version;
+            conflictModal.their_version = detail.current_version;
+            conflictModal.their_body = detail.current_body;
+            return;
+          }
+          if (!r.ok) {
+            saveState.value = 'idle';
+            showToast('保存失败：' + ((await r.json()).detail || r.statusText), 'error');
+            return;
+          }
+          activeNote.value = await r.json();
+          lastSavedBody = body;
+          saveState.value = 'saved';
+          await loadNotes();
+          await loadBacklinks();
+        };
+
+        const conflictAcceptTheirs = async () => {
+          if (!activeNote.value || !cmView) return;
+          // Reload from server, replace editor content.
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}`, { credentials: 'same-origin' });
+          activeNote.value = await r.json();
+          activeNoteTitle.value = activeNote.value.title;
+          lastSavedBody = activeNote.value.body_md;
+          conflictModal.open = false;
+          saveState.value = 'saved';
+          mountEditor();
+        };
+        const conflictForceMine = async () => {
+          // Save again with their version as expected — we now know it.
+          if (!activeNote.value) return;
+          activeNote.value.version = conflictModal.their_version;
+          conflictModal.open = false;
+          saveNow();
+        };
+
+        const renameIfChanged = () => {
+          if (!activeNote.value) return;
+          if (activeNoteTitle.value.trim() !== activeNote.value.title) {
+            saveState.value = 'dirty';
+            if (saveTimer) clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveNow, 200);
+          }
+        };
+
+        const deleteNote = async () => {
+          if (!activeNote.value) return;
+          if (!confirm(`删除笔记 "${activeNote.value.title}"？`)) return;
+          await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}`, {
+            method: 'DELETE', credentials: 'same-origin',
+          });
+          activeNote.value = null;
+          if (cmView) { cmView.destroy(); cmView = null; }
+          await loadNotes();
+        };
+
+        const loadBacklinks = async () => {
+          if (!activeNote.value) { backlinks.value = []; return; }
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/backlinks`, { credentials: 'same-origin' });
+          if (r.ok) backlinks.value = (await r.json()).backlinks || [];
+        };
+
+        const onSearchInput = () => {
+          if (searchTimer) clearTimeout(searchTimer);
+          searchTimer = setTimeout(async () => {
+            if (!searchQuery.value.trim()) { searchResults.value = []; return; }
+            const r = await fetch(
+              `/api/workspaces/${activeWorkspaceId.value}/search?q=${encodeURIComponent(searchQuery.value)}`,
+              { credentials: 'same-origin' });
+            if (r.ok) searchResults.value = (await r.json()).results || [];
+          }, 200);
+        };
+        const openSearchHit = (hit) => {
+          searchQuery.value = ''; searchResults.value = []; searchFocused.value = false;
+          openNote(hit.id);
+        };
+
+        // ── status label ──────────────────────────────────────────────
+        const saveStateLabel = computed(() => ({
+          idle: '', dirty: '未保存', saving: '保存中…', saved: '✓ 已保存', conflict: '⚠ 有冲突',
+        }[saveState.value] || ''));
+        const saveStateClass = computed(() => saveState.value);
+
+        // Save before page unload (best-effort).
+        const beforeUnload = () => { if (saveTimer) saveNow(); };
+        onMounted(async () => {
+          window.addEventListener('beforeunload', beforeUnload);
+          if (await fetchMe()) await loadWorkspaces();
+        });
+        onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload));
+
+        return {
+          me, workspaces, activeWorkspaceId, notes, groupedNotes, activeNote, activeNoteTitle,
+          backlinks, saveStateLabel, saveStateClass, editorPane,
+          searchQuery, searchResults, searchFocused,
+          newWsModal, conflictModal, toast,
+          onLoggedIn, logout, onWorkspaceChange, confirmNewWorkspace,
+          createNotePrompt, openNote, deleteNote, renameIfChanged,
+          conflictAcceptTheirs, conflictForceMine,
+          onSearchInput, openSearchHit,
+        };
+      },
+    };
+
+    createApp(App).mount('#app');
+  </script>
+</body>
+</html>
