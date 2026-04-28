@@ -2,6 +2,43 @@
 
 All notable changes to praxnest will be documented in this file.
 
+## [0.4.0] - 2026-04-28
+
+V0.4 closes the review-workflow gaps: comments + @mentions + tasks.
+
+### Added
+
+- **Comments + nested replies** (schema v4 `comments` table, one-level
+  parent/child). API at `/api/workspaces/{ws}/notes/{n}/comments`.
+  Author or system-admin can edit/delete. Body capped at 10k chars.
+- **@mentions in comments** — `@username` parsed at write time;
+  rows go into `mentions` table indexed for fast unread-count lookups.
+  Self-mentions silently dropped (no self-notification noise).
+  Mentions of unknown usernames silently dropped (don't blow up the
+  whole save). Unknown @ged user → no row.
+- **Mentions inbox** — `GET /api/me/mentions` (filter by `unread_only`),
+  `POST /api/me/mentions/mark-read` (specific ids or wipe-all).
+  Topbar 📥 N badge driven by this.
+- **Push notify on @ed** — when a comment lands @-mentions, fire-and-
+  forget push to the workspace's first configured channel via the
+  V0.2 `notify.push`. Failure swallowed (the in-app inbox is the
+  durable record).
+- **Tasks** (schema v5 `tasks` table). Fields: title, body_md, status
+  (open / in_progress / blocked / done), priority (low / normal /
+  high / urgent), assignee_id, due_at, related_note_id, full audit
+  trail of status changes (diff captured into audit.target).
+- **Task list ordering** — active above done, then newest first.
+  Filters: by status, by assignee.
+
+### Changed
+
+- Schema migration system now handles v1 → v5 chain; tested implicitly
+  via every test fixture.
+
+### Tests
+
+211 unit tests pass (added 23 comments + mentions, 17 tasks).
+
 ## [0.3.0] - 2026-04-28
 
 V0.3 closes the "actually usable team tool" gaps. After this, a 5-30

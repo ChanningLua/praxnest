@@ -8,10 +8,12 @@ from .ai import router as ai_router
 from .attachments import router as attachments_router, serve_router as attachments_serve_router
 from .audit import router as audit_router
 from .auth import router as auth_router
+from .comments import router as comments_router, mentions_router
 from .memory import router as memory_router, cross_router as memory_cross_router
 from .notes import router as notes_router, search_router as notes_search_router
 from .notify import router as notify_router
 from .presence import router as presence_router
+from .tasks import router as tasks_router
 from .workspaces import router as workspaces_router, admin_router
 
 __all__ = [
@@ -21,11 +23,14 @@ __all__ = [
     "attachments_serve_router",
     "audit_router",
     "auth_router",
+    "comments_router",
+    "mentions_router",
     "memory_router",
     "memory_cross_router",
     "notes_router",
     "notes_search_router",
     "notify_router",
     "presence_router",
+    "tasks_router",
     "workspaces_router",
 ]

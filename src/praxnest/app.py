@@ -71,9 +71,10 @@ def create_app(*, data_dir: Path) -> FastAPI:
         admin_router,
         ai_router, attachments_router, attachments_serve_router,
         audit_router, auth_router,
+        comments_router, mentions_router,
         memory_router, memory_cross_router,
         notes_router, notes_search_router, notify_router,
-        presence_router, workspaces_router,
+        presence_router, tasks_router, workspaces_router,
     )
 
     app.include_router(auth_router)
@@ -82,6 +83,9 @@ def create_app(*, data_dir: Path) -> FastAPI:
     app.include_router(workspaces_router)
     app.include_router(notes_router)
     app.include_router(notes_search_router)
+    app.include_router(comments_router)
+    app.include_router(mentions_router)
+    app.include_router(tasks_router)
     app.include_router(ai_router)
     app.include_router(presence_router)
     app.include_router(memory_router)

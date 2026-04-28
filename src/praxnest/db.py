@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 def db_path(data_dir: Path) -> Path:
@@ -207,7 +207,93 @@ CREATE INDEX IF NOT EXISTS idx_versions_note ON note_versions(note_id);
 """
 
 
+# ── Schema v4 ──────────────────────────────────────────────────────────────
+# Added: comments + mentions tables.
+# - comments: a thread under a note. Parent_id supports one-level nesting
+#   (a reply to a comment); we don't allow infinite nesting because the
+#   review-workflow use case doesn't need it and rendering deep trees
+#   makes the right-pane scroll a mess.
+# - mentions: denormalized index of "user X was @ed in comment Y" so
+#   GUI can show "你被提及了 N 条" without scanning every comment body.
+
+SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+    body_md TEXT NOT NULL,
+    author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    author_username TEXT NOT NULL,           -- denormalized: survives user delete
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    edited_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_note ON comments(note_id);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
+
+CREATE TABLE IF NOT EXISTS mentions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Source: which comment contained the @-mention. Always present;
+    -- a future task or note-body mention could carry source_kind=note
+    -- without breaking the schema.
+    source_kind TEXT NOT NULL DEFAULT 'comment',
+    source_id INTEGER NOT NULL,
+    -- Who got mentioned + the workspace context (so the UI can list
+    -- "your unread @s" scoped to a workspace).
+    mentioned_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    -- Read-state: NULL = unread; timestamp = when user dismissed it.
+    read_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_mentions_user_unread
+    ON mentions(mentioned_user_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_mentions_source
+    ON mentions(source_kind, source_id);
+"""
+
+
+# ── Schema v5 ──────────────────────────────────────────────────────────────
+# Added: tasks table — bug/feature/PRD tracking that needs assignee +
+# status + due, distinct from notes (which are documents).
+#
+# Status values are lowercase keywords; we don't enforce a state-machine
+# in SQL (open → in_progress → done is documented in the GUI). DB just
+# accepts any string in the small set, leaving validation to Python.
+#
+# `related_note_id` lets a task point to its source PRD / bug-report
+# note. NULL = standalone task.
+
+SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    body_md TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK(status IN ('open', 'in_progress', 'blocked', 'done')),
+    priority TEXT NOT NULL DEFAULT 'normal'
+        CHECK(priority IN ('low', 'normal', 'high', 'urgent')),
+    assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    due_at TEXT,                                  -- ISO date or NULL
+    related_note_id INTEGER REFERENCES notes(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    closed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+"""
+
+
 MIGRATIONS = [
     (2, SCHEMA_V2),
     (3, SCHEMA_V3),
+    (4, SCHEMA_V4),
+    (5, SCHEMA_V5),
 ]
