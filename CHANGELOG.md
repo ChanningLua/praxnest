@@ -2,6 +2,44 @@
 
 All notable changes to praxnest will be documented in this file.
 
+## [0.5.0] - 2026-04-28
+
+### Added — closing the industrial-team gap
+
+- **API tokens** (schema v6 `api_tokens` table). Long-lived machine
+  credentials in `pnt_xxxx` format. bcrypt hash on the way in;
+  plaintext shown ONCE at creation. Constant-time verify (always
+  one bcrypt check, even on miss). Soft revoke. `Authorization:
+  Bearer pnt_xxx` header now valid auth alongside session cookie.
+- **Workspace export** — `GET /api/workspaces/{ws}/export` returns a
+  zip with: `notes/<folder>/<title>.md` (with frontmatter), full
+  `comments.json` / `tasks.json` / `members.json` (no password
+  hashes), and `attachments/<sha>` plus `attachments-index.json`
+  (deduplicated by sha256). Workspace-admin only. Filename
+  sanitization for Windows compat.
+- **Comments + mentions UI** — right pane gets a "评论" tab with
+  threaded replies + delete (author / system-admin only). Topbar
+  📥 badge with unread count; modal lists all mentions, click to
+  jump to source comment + auto-mark-read.
+- **Tasks UI** — left sidebar gets a "任务" section listing tasks
+  with status pill / priority icon. Click any task → full edit
+  modal (title / body / status / priority / assignee from member
+  list / due date). New-task button at top of section.
+- **30s mentions refresh** — every heartbeat tick also refreshes
+  mention count so the topbar badge stays current.
+
+### Changed
+
+- `require_user` dependency now accepts both session-cookie AND
+  Bearer token auth paths. All existing routes work via tokens too.
+- Schema now at v6; migrations run cleanly v1 → v6.
+
+### Tests
+
+241 unit tests pass (added 17 tokens + 13 export). All sensitive
+data flows (passwords / token hashes / token plaintext) tested for
+non-leakage explicitly.
+
 ## [0.4.0] - 2026-04-28
 
 V0.4 closes the review-workflow gaps: comments + @mentions + tasks.

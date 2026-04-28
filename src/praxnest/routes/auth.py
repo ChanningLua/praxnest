@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import audit, auth as auth_lib
+from .. import api_tokens, audit, auth as auth_lib
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -26,19 +26,36 @@ class LoginBody(BaseModel):
 def require_user(request: Request) -> dict[str, Any]:
     """Dependency that returns the logged-in user dict or raises 401.
 
-    Reads the user_id from the signed session cookie, then re-fetches
-    the user from db (so role changes / disabled users take effect on
-    the very next request without re-login).
+    Two valid auth paths:
+
+    1. **Session cookie** — set by the login form. Reads ``user_id``
+       from signed session, re-fetches user from db so role changes
+       / disabled accounts take effect on the very next request.
+    2. **Bearer token** — long-lived API token (V0.5+) in the
+       ``Authorization: Bearer pnt_xxx`` header. Used for CI / scripts.
+
+    Either succeeds → returns the user dict. Both fail → 401.
     """
+    data_dir = request.app.state.data_dir
+
+    # Path 1: session cookie.
     user_id = request.session.get("user_id")
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="not logged in")
-    user = auth_lib.get_user(request.app.state.data_dir, int(user_id))
-    if user is None:
-        # User was deleted while their session was alive. Clear cookie.
+    if user_id is not None:
+        user = auth_lib.get_user(data_dir, int(user_id))
+        if user is not None:
+            return user
         request.session.clear()
-        raise HTTPException(status_code=401, detail="user no longer exists")
-    return user
+        # Fall through to token path before giving up.
+
+    # Path 2: Bearer token.
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        secret = auth_header[len("bearer "):].strip()
+        user = api_tokens.verify(data_dir, secret)
+        if user is not None:
+            return user
+
+    raise HTTPException(status_code=401, detail="not logged in")
 
 
 @router.post("/login")

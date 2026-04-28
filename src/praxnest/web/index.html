@@ -194,7 +194,55 @@
       background: var(--acc-fade); color: var(--acc); padding: 0 2px; border-radius: 2px;
     }
 
-    /* Right pane tabs (反向引用 / AI / 团队记忆) */
+    /* Comments panel */
+    .comment-row {
+      padding: 10px; border-bottom: 1px solid var(--border);
+      font-size: 13px; line-height: 1.5;
+    }
+    .comment-row.reply { margin-left: 18px; border-left: 2px solid var(--acc); padding-left: 10px; }
+    .comment-meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .comment-meta .author { color: var(--ink); font-weight: 600; }
+    .comment-actions { font-size: 11px; margin-top: 4px; }
+    .comment-actions button { padding: 2px 6px; font-size: 11px; }
+
+    /* Mention badge in topbar */
+    .mention-badge {
+      position: relative; padding: 4px 10px;
+      cursor: pointer; user-select: none;
+      font-size: 12px;
+    }
+    .mention-badge .dot {
+      position: absolute; top: 0; right: 0;
+      min-width: 16px; height: 16px; padding: 0 4px;
+      border-radius: 8px; background: var(--danger);
+      color: #fff; font-size: 10px; font-weight: 600;
+      display: grid; place-items: center;
+    }
+
+    /* Tasks UI */
+    .task-row {
+      padding: 8px 10px; border-bottom: 1px solid var(--border);
+      cursor: pointer; font-size: 13px;
+      display: flex; gap: 8px; align-items: center;
+    }
+    .task-row:hover { background: rgba(255,255,255,0.04); }
+    .task-row.done { opacity: 0.5; }
+    .task-row.done .title { text-decoration: line-through; }
+    .task-status {
+      font-size: 10px; padding: 2px 6px; border-radius: 3px;
+      flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .task-status.open { background: rgba(255,255,255,0.06); color: var(--muted); }
+    .task-status.in_progress { background: rgba(110, 231, 255, 0.12); color: var(--acc); }
+    .task-status.blocked { background: rgba(255, 109, 141, 0.12); color: var(--danger); }
+    .task-status.done { background: rgba(61, 222, 157, 0.12); color: var(--ok); }
+    .task-priority { font-size: 10px; }
+    .task-priority.urgent { color: var(--danger); }
+    .task-priority.high { color: var(--warn); }
+    .task-priority.normal { color: var(--muted); }
+    .task-priority.low { color: var(--muted); }
+
+    /* Right pane tabs (反向引用 / AI / 团队记忆 / 评论) */
     .pane-tabs {
       display: flex; border-bottom: 1px solid var(--border); margin: -16px -16px 12px;
     }
@@ -412,6 +460,10 @@
                   <span style="font-size:10px;color:var(--muted);margin-left:auto;">{{ u.workspace_role }}</span>
                 </div>
               </div>
+              <button class="mention-badge" @click="openMentionsModal" title="我被提到">
+                📥
+                <span v-if="mentions.unreadCount > 0" class="dot">{{ mentions.unreadCount }}</span>
+              </button>
               <button v-if="me.role === 'admin'" class="secondary" @click="openMembersModal" title="成员管理">
                 👥
               </button>
@@ -439,6 +491,25 @@
             </template>
             <div v-if="!notes.length" class="empty-state" style="padding:20px 14px;font-size:12px;">
               还没有笔记。点上面的「+」新建。
+            </div>
+
+            <div class="group-title" style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+              <span>任务</span>
+              <button class="secondary" style="padding:2px 8px;font-size:11px;" @click="openTaskCreateModal">+</button>
+            </div>
+            <div v-if="tasks.list.length === 0" class="empty-state" style="padding:8px 14px; font-size:11px;">
+              没有任务。
+            </div>
+            <div v-for="t in tasks.list" :key="t.id"
+                 :class="['task-row', t.status === 'done' ? 'done' : '']"
+                 @click="openTaskModal(t.id)">
+              <span :class="['task-status', t.status]">{{ taskStatusLabel(t.status) }}</span>
+              <span class="title" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                {{ t.title }}
+              </span>
+              <span :class="['task-priority', t.priority]" v-if="t.priority !== 'normal'">
+                {{ t.priority === 'urgent' ? '🔥' : (t.priority === 'high' ? '⬆' : '') }}
+              </span>
             </div>
           </div>
 
@@ -486,6 +557,9 @@
               </div>
               <div class="pane-tab" :class="{active: rightTab === 'memory'}" @click="rightTab = 'memory'">
                 团队记忆
+              </div>
+              <div class="pane-tab" :class="{active: rightTab === 'comments'}" @click="rightTab = 'comments'; loadComments()">
+                评论 <span v-if="comments.list.length > 0" style="color: var(--acc);">({{ comments.list.length }})</span>
               </div>
             </div>
 
@@ -568,6 +642,43 @@
                     📦 {{ r.workspace_name }}
                   </div>
                   <div style="font-size:11px;color:var(--muted);" v-html="r.snippet"></div>
+                </div>
+              </template>
+            </div>
+
+            <!-- 评论 -->
+            <div v-show="rightTab === 'comments'" class="pane-body">
+              <div v-if="!activeNote" style="font-size:12px; color:var(--muted);">
+                选中一篇笔记后能在这里讨论 / @ 同事。
+              </div>
+              <template v-else>
+                <textarea v-model="comments.newBody" class="ai-input mono"
+                          :placeholder="comments.replyTo ? `回复 #${comments.replyTo}…` : '写评论。@username 提到同事'"></textarea>
+                <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+                  <span v-if="comments.replyTo" style="font-size:11px; color: var(--muted);">
+                    回复 #{{ comments.replyTo }} · <a @click="comments.replyTo = null" style="cursor:pointer;color:var(--acc);">取消</a>
+                  </span>
+                  <button @click="postComment" :disabled="comments.busy || !comments.newBody.trim()" style="margin-left:auto;">
+                    {{ comments.busy ? '发布中…' : '发布' }}
+                  </button>
+                </div>
+
+                <div v-if="comments.list.length === 0" style="font-size:12px; color: var(--muted); margin-top: 12px;">
+                  还没有评论。先开个头。
+                </div>
+                <div v-for="c in comments.list" :key="c.id"
+                     :class="['comment-row', c.parent_id ? 'reply' : '']">
+                  <div class="comment-meta">
+                    <span class="author">{{ c.author_username }}</span>
+                    · {{ c.created_at }}<span v-if="c.edited_at"> · 已编辑</span>
+                  </div>
+                  <div style="white-space: pre-wrap;">{{ c.body_md }}</div>
+                  <div class="comment-actions">
+                    <button class="secondary" @click="comments.replyTo = c.id" v-if="!c.parent_id">回复</button>
+                    <button class="danger" @click="deleteComment(c.id)" v-if="c.author_id === me.id || me.role === 'admin'">
+                      删除
+                    </button>
+                  </div>
                 </div>
               </template>
             </div>
@@ -755,6 +866,79 @@
           </div>
         </div>
 
+        <!-- Mentions inbox modal -->
+        <div v-if="mentions.modalOpen" class="modal-overlay" @click.self="mentions.modalOpen = false">
+          <div class="modal" style="max-width: 600px;">
+            <h2>📥 我被提到 ({{ mentions.unreadCount }} 未读)</h2>
+            <div v-if="mentions.list.length === 0" style="font-size:12px; color: var(--muted);">
+              没有 @ 你的消息。
+            </div>
+            <div v-for="m in mentions.list" :key="m.id"
+                 :style="{padding:'10px', borderBottom:'1px solid var(--border)', cursor:'pointer', opacity: m.read_at ? 0.6 : 1}"
+                 @click="jumpToMention(m)">
+              <div style="font-size:11px; color: var(--muted);">
+                {{ m.author_username }} · 在《{{ m.note_title || '?' }}》（{{ m.workspace_name }}）· {{ m.created_at }}
+                <span v-if="!m.read_at" style="color: var(--danger);">● 未读</span>
+              </div>
+              <div style="font-size:13px; margin-top:4px; white-space: pre-wrap;">{{ m.comment_body }}</div>
+            </div>
+            <div class="modal-actions">
+              <button class="secondary" @click="markAllMentionsRead" v-if="mentions.unreadCount > 0">全部标已读</button>
+              <button class="secondary" @click="mentions.modalOpen = false">关闭</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Task create / edit modal -->
+        <div v-if="taskModal.open" class="modal-overlay" @click.self="taskModal.open = false">
+          <div class="modal" style="max-width: 560px; min-width: 480px;">
+            <h2>{{ taskModal.editing ? '编辑任务' : '新任务' }}</h2>
+            <label>标题</label>
+            <input v-model="taskModal.title" autofocus />
+            <label>描述（markdown）</label>
+            <textarea v-model="taskModal.body_md" rows="4" style="width:100%; resize:vertical; font-family:'SF Mono', monospace;"></textarea>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+              <div>
+                <label>状态</label>
+                <select v-model="taskModal.status">
+                  <option value="open">待开始</option>
+                  <option value="in_progress">进行中</option>
+                  <option value="blocked">阻塞</option>
+                  <option value="done">完成</option>
+                </select>
+              </div>
+              <div>
+                <label>优先级</label>
+                <select v-model="taskModal.priority">
+                  <option value="low">低</option>
+                  <option value="normal">普通</option>
+                  <option value="high">高</option>
+                  <option value="urgent">紧急</option>
+                </select>
+              </div>
+              <div>
+                <label>负责人</label>
+                <select v-model="taskModal.assignee_id">
+                  <option :value="null">未指派</option>
+                  <option v-for="m in membersModal.members" :key="m.id" :value="m.id">{{ m.username }}</option>
+                </select>
+              </div>
+              <div>
+                <label>截止时间（YYYY-MM-DD）</label>
+                <input v-model="taskModal.due_at" placeholder="可选" />
+              </div>
+            </div>
+            <div v-if="taskModal.error" class="err">{{ taskModal.error }}</div>
+            <div class="modal-actions">
+              <button v-if="taskModal.editing" class="danger" @click="deleteCurrentTask" style="margin-right:auto;">删除</button>
+              <button class="secondary" @click="taskModal.open = false">取消</button>
+              <button @click="saveTaskFromModal" :disabled="!taskModal.title.trim() || taskModal.busy">
+                {{ taskModal.busy ? '保存中…' : '保存' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Toast -->
         <div v-if="toast.message" :class="['toast', toast.kind]">{{ toast.message }}</div>
       `,
@@ -814,6 +998,7 @@
           heartbeatTimer = setInterval(() => {
             ping();
             loadPresence();
+            loadMentions();
           }, 30000);
         };
         const stopHeartbeat = () => {
@@ -960,6 +1145,174 @@
           showToast('✓ 已恢复', 'success');
         };
 
+        // Comments state
+        const comments = reactive({
+          list: [], newBody: '', replyTo: null, busy: false,
+        });
+        const loadComments = async () => {
+          if (!activeNote.value) return;
+          const r = await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/comments`,
+            { credentials: 'same-origin' });
+          if (r.ok) comments.list = (await r.json()).comments || [];
+        };
+        const postComment = async () => {
+          const body = comments.newBody.trim();
+          if (!body) return;
+          comments.busy = true;
+          try {
+            const r = await fetch(
+              `/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/comments`,
+              {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ body_md: body, parent_id: comments.replyTo }),
+              });
+            if (!r.ok) {
+              showToast('发布失败：' + ((await r.json()).detail || r.statusText), 'error');
+              return;
+            }
+            comments.newBody = ''; comments.replyTo = null;
+            await loadComments();
+            await loadMentions();   // posting one might mention others; refresh badge.
+          } finally { comments.busy = false; }
+        };
+        const deleteComment = async (commentId) => {
+          if (!confirm('删除这条评论？')) return;
+          await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/comments/${commentId}`,
+            { method: 'DELETE', credentials: 'same-origin' });
+          await loadComments();
+        };
+
+        // Mentions state
+        const mentions = reactive({
+          list: [], unreadCount: 0, modalOpen: false,
+        });
+        const loadMentions = async () => {
+          try {
+            const r = await fetch('/api/me/mentions', { credentials: 'same-origin' });
+            if (r.ok) {
+              const d = await r.json();
+              mentions.list = d.mentions || [];
+              mentions.unreadCount = d.unread_count || 0;
+            }
+          } catch {}
+        };
+        const openMentionsModal = async () => {
+          await loadMentions();
+          mentions.modalOpen = true;
+        };
+        const markAllMentionsRead = async () => {
+          await fetch('/api/me/mentions/mark-read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({}),
+          });
+          await loadMentions();
+        };
+        const jumpToMention = async (m) => {
+          // Mark this single mention read.
+          await fetch('/api/me/mentions/mark-read', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({ mention_ids: [m.id] }),
+          });
+          // Navigate to the source note.
+          if (m.note_id && m.workspace_id) {
+            mentions.modalOpen = false;
+            if (activeWorkspaceId.value !== m.workspace_id) {
+              activeWorkspaceId.value = m.workspace_id;
+              await loadNotes();
+            }
+            await openNote(m.note_id);
+            rightTab.value = 'comments';
+            await loadComments();
+          }
+          await loadMentions();
+        };
+
+        // Tasks state — workspace-scoped list shown in left sidebar.
+        const tasks = reactive({ list: [] });
+        const loadTasks = async () => {
+          if (!activeWorkspaceId.value) return;
+          try {
+            const r = await fetch(
+              `/api/workspaces/${activeWorkspaceId.value}/tasks?limit=100`,
+              { credentials: 'same-origin' });
+            if (r.ok) tasks.list = (await r.json()).tasks || [];
+          } catch {}
+        };
+        const taskStatusLabel = (s) => ({
+          'open': '待办', 'in_progress': '进行', 'blocked': '阻塞', 'done': '完成',
+        }[s] || s);
+
+        const taskModal = reactive({
+          open: false, editing: null,
+          title: '', body_md: '', status: 'open', priority: 'normal',
+          assignee_id: null, due_at: '', error: '', busy: false,
+        });
+        const openTaskCreateModal = async () => {
+          // Pre-load members so the assignee dropdown has options.
+          if (membersModal.members.length === 0) await loadMembers();
+          Object.assign(taskModal, {
+            open: true, editing: null,
+            title: '', body_md: '', status: 'open', priority: 'normal',
+            assignee_id: null, due_at: '', error: '', busy: false,
+          });
+        };
+        const openTaskModal = async (taskId) => {
+          if (membersModal.members.length === 0) await loadMembers();
+          const r = await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/tasks/${taskId}`,
+            { credentials: 'same-origin' });
+          if (!r.ok) { showToast('任务不存在', 'error'); return; }
+          const t = await r.json();
+          Object.assign(taskModal, {
+            open: true, editing: t.id,
+            title: t.title, body_md: t.body_md || '',
+            status: t.status, priority: t.priority,
+            assignee_id: t.assignee_id, due_at: t.due_at || '',
+            error: '', busy: false,
+          });
+        };
+        const saveTaskFromModal = async () => {
+          taskModal.busy = true; taskModal.error = '';
+          try {
+            const payload = {
+              title: taskModal.title,
+              body_md: taskModal.body_md,
+              status: taskModal.status,
+              priority: taskModal.priority,
+              assignee_id: taskModal.assignee_id || null,
+              due_at: taskModal.due_at || null,
+              clear_assignee: !taskModal.assignee_id,
+              clear_due: !taskModal.due_at,
+            };
+            const url = taskModal.editing
+              ? `/api/workspaces/${activeWorkspaceId.value}/tasks/${taskModal.editing}`
+              : `/api/workspaces/${activeWorkspaceId.value}/tasks`;
+            const r = await fetch(url, {
+              method: taskModal.editing ? 'PUT' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin', body: JSON.stringify(payload),
+            });
+            if (!r.ok) {
+              taskModal.error = (await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`;
+              return;
+            }
+            taskModal.open = false;
+            await loadTasks();
+          } finally { taskModal.busy = false; }
+        };
+        const deleteCurrentTask = async () => {
+          if (!taskModal.editing) return;
+          if (!confirm('删除这个任务？')) return;
+          await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/tasks/${taskModal.editing}`,
+            { method: 'DELETE', credentials: 'same-origin' });
+          taskModal.open = false;
+          await loadTasks();
+        };
+
         // Notify channels for the AI push-to-channel button
         const notifyChannels = ref([]);
         const loadNotifyChannels = async () => {
@@ -1036,7 +1389,11 @@
           activeNote.value = null;
           aiMessages.value = [];
           memoryResults.value = [];
-          await Promise.all([loadNotes(), loadAiStatus(), loadPresence(), loadNotifyChannels()]);
+          comments.list = [];
+          await Promise.all([
+            loadNotes(), loadAiStatus(), loadPresence(),
+            loadNotifyChannels(), loadTasks(),
+          ]);
         };
 
         const loadAiStatus = async () => {
@@ -1183,6 +1540,7 @@
           // Memory only auto-loads if the user is currently on that tab
           // — avoids running the FTS5 query for every note click.
           if (rightTab.value === 'memory') loadMemory();
+          if (rightTab.value === 'comments') loadComments();
         };
 
         const mountEditor = () => {
@@ -1387,9 +1745,10 @@
           window.addEventListener('beforeunload', beforeUnload);
           if (await fetchMe()) {
             await loadWorkspaces();
-            await loadAiStatus();
-            await loadNotifyChannels();
-            await loadPresence();
+            await Promise.all([
+              loadAiStatus(), loadNotifyChannels(), loadPresence(),
+              loadTasks(), loadMentions(),
+            ]);
             startHeartbeat();
             maybeShowOnboarding();
           }
@@ -1422,6 +1781,11 @@
           membersModal, openMembersModal, inviteMember, removeMember, setMemberRole, createUser,
           versionsModal, openVersionsModal, loadVersion, restoreVersion,
           notifyChannels, pushAiMessage,
+          // V0.5: comments / mentions / tasks
+          comments, loadComments, postComment, deleteComment,
+          mentions, openMentionsModal, markAllMentionsRead, jumpToMention,
+          tasks, taskStatusLabel, openTaskCreateModal, openTaskModal,
+          taskModal, saveTaskFromModal, deleteCurrentTask,
         };
       },
     };

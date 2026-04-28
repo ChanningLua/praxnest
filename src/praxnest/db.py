@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def db_path(data_dir: Path) -> Path:
@@ -291,9 +291,37 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 """
 
 
+# ── Schema v6 ──────────────────────────────────────────────────────────────
+# Added: api_tokens — long-lived machine credentials so CI / scripts can
+# call praxnest without going through the login form. We store only the
+# bcrypt hash of the secret; the plaintext is shown to the user once
+# at creation and never again (same model as GitHub PATs).
+
+SCHEMA_V6 = """
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,                 -- user-supplied label, e.g. "ci-bot"
+    -- token_hash: bcrypt of the secret. Plaintext never persisted.
+    token_hash TEXT NOT NULL,
+    -- token_prefix: first 8 chars of the secret, persisted unhashed for
+    -- "Active tokens" UI listings (so the user can identify which token
+    -- a value belongs to without us having to display the full thing).
+    token_prefix TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,                   -- NULL = never used
+    revoked_at TEXT                      -- NULL = active
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix ON api_tokens(token_prefix);
+"""
+
+
 MIGRATIONS = [
     (2, SCHEMA_V2),
     (3, SCHEMA_V3),
     (4, SCHEMA_V4),
     (5, SCHEMA_V5),
+    (6, SCHEMA_V6),
 ]
