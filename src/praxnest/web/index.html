@@ -194,6 +194,43 @@
       background: var(--acc-fade); color: var(--acc); padding: 0 2px; border-radius: 2px;
     }
 
+    /* Right pane tabs (反向引用 / AI / 团队记忆) */
+    .pane-tabs {
+      display: flex; border-bottom: 1px solid var(--border); margin: -16px -16px 12px;
+    }
+    .pane-tab {
+      flex: 1; padding: 10px 12px; cursor: pointer; text-align: center;
+      font-size: 12px; color: var(--muted); border-bottom: 2px solid transparent;
+    }
+    .pane-tab:hover { color: var(--ink); }
+    .pane-tab.active { color: var(--acc); border-bottom-color: var(--acc); }
+    .pane-body { font-size: 13px; }
+
+    /* AI sidebar */
+    .ai-input { width: 100%; min-height: 60px; resize: vertical; }
+    .ai-history { margin-top: 12px; }
+    .ai-msg { padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; line-height: 1.55; }
+    .ai-msg.user { background: rgba(110, 231, 255, 0.06); border-left: 2px solid var(--acc); }
+    .ai-msg.ai   { background: rgba(255, 255, 255, 0.03); white-space: pre-wrap; }
+    .ai-msg.ai mark { background: var(--acc-fade); color: var(--acc); padding: 0 2px; }
+    .ai-anchor { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+
+    /* AI workflow dropdown */
+    .ai-actions { position: relative; }
+    .ai-actions-menu {
+      position: absolute; top: 100%; right: 0;
+      background: rgba(10, 13, 24, 0.98); border: 1px solid var(--border);
+      border-radius: 6px; min-width: 220px; padding: 4px; margin-top: 4px;
+      z-index: 50;
+    }
+    .ai-actions-section { padding: 6px 8px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    .ai-action {
+      padding: 6px 10px; cursor: pointer; border-radius: 4px;
+      font-size: 13px;
+    }
+    .ai-action:hover { background: rgba(255,255,255,0.05); }
+    .ai-action.disabled { color: var(--muted); cursor: not-allowed; }
+
     /* Modal */
     .modal-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -341,6 +378,23 @@
             <div v-if="activeNote" class="editor-header">
               <input class="title-input" v-model="activeNoteTitle" @blur="renameIfChanged" />
               <span class="editor-status" :class="saveStateClass">{{ saveStateLabel }}</span>
+              <!-- AI workflow dropdown — only shown if praxagent installed -->
+              <div v-if="aiAvailable" class="ai-actions">
+                <button class="secondary" @click.stop="aiMenuOpen = !aiMenuOpen">
+                  AI 助手 ▾
+                </button>
+                <div v-if="aiMenuOpen" class="ai-actions-menu" @click.stop>
+                  <div class="ai-actions-section">PRD 助手</div>
+                  <div class="ai-action" @click="runWorkflow('prd', 'test-cases')">生成测试用例</div>
+                  <div class="ai-action" @click="runWorkflow('prd', 'requirements')">提取需求点</div>
+                  <div class="ai-action" @click="runWorkflow('prd', 'checklist')">验收清单</div>
+                  <div class="ai-actions-section">Bug 协同</div>
+                  <div class="ai-action" @click="runWorkflow('bug', 'assess')">评估严重度 / 排查方向</div>
+                  <div class="ai-action" @click="runWorkflow('bug', 'fill-template')">套标准 bug 模板</div>
+                  <div class="ai-actions-section">测试报告</div>
+                  <div class="ai-action" @click="runWorkflow('test-report', 'summary')">生成执行摘要</div>
+                </div>
+              </div>
               <button class="danger" @click="deleteNote">删除</button>
             </div>
             <div class="editor-pane" ref="editorPane">
@@ -351,20 +405,90 @@
             </div>
           </div>
 
-          <!-- backlinks panel -->
+          <!-- right pane: tabbed (反向引用 / AI / 团队记忆) -->
           <div class="backlinks-pane">
-            <h3>反向引用</h3>
-            <div v-if="!activeNote" style="font-size:12px;color:var(--muted);">
-              选中一篇笔记后这里会列出哪些笔记 [[链接]] 到它。
+            <div class="pane-tabs">
+              <div class="pane-tab" :class="{active: rightTab === 'backlinks'}" @click="rightTab = 'backlinks'">
+                反向引用
+              </div>
+              <div class="pane-tab" :class="{active: rightTab === 'ai'}" @click="rightTab = 'ai'">
+                AI 助手
+              </div>
+              <div class="pane-tab" :class="{active: rightTab === 'memory'}" @click="rightTab = 'memory'">
+                团队记忆
+              </div>
             </div>
-            <div v-else>
-              <div v-if="!backlinks.length" style="font-size:12px;color:var(--muted);">
+
+            <!-- 反向引用 -->
+            <div v-show="rightTab === 'backlinks'" class="pane-body">
+              <div v-if="!activeNote" style="font-size:12px;color:var(--muted);">
+                选中一篇笔记后列出哪些笔记 [[链接]] 到它。
+              </div>
+              <div v-else-if="!backlinks.length" style="font-size:12px;color:var(--muted);">
                 还没有其他笔记引用这篇。在别的笔记里写 <code>[[{{ activeNote.title }}]]</code> 试试。
               </div>
-              <div v-for="b in backlinks" :key="b.id" class="backlink-row" @click="openNote(b.id)">
-                {{ b.title }}
-                <div style="font-size:11px;color:var(--muted);">{{ b.folder_path || '/' }}</div>
+              <div v-else>
+                <div v-for="b in backlinks" :key="b.id" class="backlink-row" @click="openNote(b.id)">
+                  {{ b.title }}
+                  <div style="font-size:11px;color:var(--muted);">{{ b.folder_path || '/' }}</div>
+                </div>
               </div>
+            </div>
+
+            <!-- AI 助手 -->
+            <div v-show="rightTab === 'ai'" class="pane-body">
+              <div v-if="!aiAvailable" style="font-size:12px;color:var(--muted);">
+                praxagent 未安装。终端跑：<br>
+                <code>npm install -g praxagent</code><br>
+                然后回到这里，AI 功能会自动启用。
+              </div>
+              <template v-else>
+                <textarea v-model="aiInput" class="ai-input mono"
+                          placeholder="问点什么。如果当前打开了笔记，AI 会拿到这篇的内容做上下文。"></textarea>
+                <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+                  <label style="display:flex; gap:4px; align-items:center; font-size:11px;">
+                    <input type="checkbox" v-model="aiAnchorToNote" :disabled="!activeNote" />
+                    把当前笔记作为上下文
+                  </label>
+                  <button @click="askAi" :disabled="aiBusy || !aiInput.trim()" style="margin-left:auto;">
+                    {{ aiBusy ? '思考中…' : '问 AI' }}
+                  </button>
+                </div>
+                <div class="ai-history">
+                  <div v-for="(m, i) in aiMessages" :key="i" :class="['ai-msg', m.role]">
+                    <div v-if="m.anchor" class="ai-anchor">📎 {{ m.anchor }}</div>
+                    {{ m.text }}
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- 团队记忆 -->
+            <div v-show="rightTab === 'memory'" class="pane-body">
+              <div v-if="!activeNote" style="font-size:12px;color:var(--muted);">
+                选中笔记后这里显示工作空间内 / 跨工作空间内容相似的笔记。
+              </div>
+              <template v-else>
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+                  <label style="font-size:11px; display:flex; gap:4px; align-items:center;">
+                    <input type="checkbox" v-model="memoryCrossWs" @change="loadMemory" />
+                    跨工作空间
+                  </label>
+                  <button @click="loadMemory" :disabled="memoryBusy" style="margin-left:auto;font-size:11px;padding:4px 8px;">
+                    {{ memoryBusy ? '搜索中…' : '刷新' }}
+                  </button>
+                </div>
+                <div v-if="!memoryResults.length && !memoryBusy" style="font-size:12px;color:var(--muted);">
+                  没找到相似笔记。继续写下去，AI 找到关联会主动提示。
+                </div>
+                <div v-for="r in memoryResults" :key="r.id" class="backlink-row" @click="openNote(r.id, r.workspace_id)">
+                  {{ r.title }}
+                  <div v-if="r.workspace_name" style="font-size:11px;color:var(--acc);">
+                    📦 {{ r.workspace_name }}
+                  </div>
+                  <div style="font-size:11px;color:var(--muted);" v-html="r.snippet"></div>
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -426,6 +550,24 @@
         const conflictModal = reactive({ open: false, your_base_version: 0, their_version: 0, their_body: '' });
         const toast = reactive({ message: '', kind: 'info' });
 
+        // AI sidebar state
+        const rightTab = ref('backlinks');
+        const aiAvailable = ref(false);
+        const aiMenuOpen = ref(false);
+        const aiInput = ref('');
+        const aiBusy = ref(false);
+        const aiAnchorToNote = ref(true);
+        const aiMessages = ref([]); // [{role: 'user'|'ai', text, anchor?}]
+
+        // Team memory state
+        const memoryResults = ref([]);
+        const memoryBusy = ref(false);
+        const memoryCrossWs = ref(false);
+
+        // Click-outside closes AI menu
+        const handleDocClick = () => { aiMenuOpen.value = false; };
+        document.addEventListener('click', handleDocClick);
+
         const showToast = (message, kind = 'info', timeout = 3000) => {
           toast.message = message; toast.kind = kind;
           setTimeout(() => { toast.message = ''; }, timeout);
@@ -464,12 +606,89 @@
         const onWorkspaceChange = async () => {
           if (activeWorkspaceId.value === '__new__') {
             newWsModal.open = true;
-            // Reset to current valid choice while modal handles creation.
             activeWorkspaceId.value = workspaces.value[0]?.id ?? null;
             return;
           }
           activeNote.value = null;
+          aiMessages.value = [];
+          memoryResults.value = [];
           await loadNotes();
+          await loadAiStatus();
+        };
+
+        const loadAiStatus = async () => {
+          if (!activeWorkspaceId.value) return;
+          try {
+            const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/ai/status`, { credentials: 'same-origin' });
+            if (r.ok) aiAvailable.value = (await r.json()).available;
+          } catch { aiAvailable.value = false; }
+        };
+
+        const askAi = async () => {
+          const question = aiInput.value.trim();
+          if (!question) return;
+          aiBusy.value = true;
+          const anchorTitle = aiAnchorToNote.value && activeNote.value ? activeNote.value.title : null;
+          aiMessages.value.push({ role: 'user', text: question, anchor: anchorTitle });
+          aiInput.value = '';
+          try {
+            const body = { question };
+            if (anchorTitle) body.note_id = activeNote.value.id;
+            const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/ai/ask`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin', body: JSON.stringify(body),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              aiMessages.value.push({ role: 'ai', text: '❌ ' + (d.detail || `HTTP ${r.status}`) });
+            } else {
+              aiMessages.value.push({ role: 'ai', text: (await r.json()).output || '(空回复)' });
+            }
+          } catch (e) {
+            aiMessages.value.push({ role: 'ai', text: '❌ 请求出错：' + e.message });
+          } finally { aiBusy.value = false; }
+        };
+
+        const runWorkflow = async (kind, action) => {
+          aiMenuOpen.value = false;
+          if (!activeNote.value) { showToast('先打开一篇笔记', 'warn'); return; }
+          rightTab.value = 'ai';
+          aiBusy.value = true;
+          aiMessages.value.push({
+            role: 'user',
+            text: `🔧 工作流：${kind} / ${action}`,
+            anchor: activeNote.value.title,
+          });
+          try {
+            const r = await fetch(
+              `/api/workspaces/${activeWorkspaceId.value}/ai/workflows/${kind}/${action}`,
+              {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ note_id: activeNote.value.id }),
+              });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              aiMessages.value.push({ role: 'ai', text: '❌ ' + (d.detail || `HTTP ${r.status}`) });
+            } else {
+              aiMessages.value.push({ role: 'ai', text: (await r.json()).output || '(空回复)' });
+            }
+          } catch (e) {
+            aiMessages.value.push({ role: 'ai', text: '❌ 请求出错：' + e.message });
+          } finally { aiBusy.value = false; }
+        };
+
+        const loadMemory = async () => {
+          if (!activeNote.value) { memoryResults.value = []; return; }
+          memoryBusy.value = true;
+          try {
+            const url = memoryCrossWs.value
+              ? `/api/memory/similar-across-workspaces?note_id=${activeNote.value.id}`
+              : `/api/workspaces/${activeWorkspaceId.value}/memory/similar?note_id=${activeNote.value.id}`;
+            const r = await fetch(url, { credentials: 'same-origin' });
+            if (r.ok) memoryResults.value = (await r.json()).results || [];
+          } catch { memoryResults.value = []; }
+          finally { memoryBusy.value = false; }
         };
         const confirmNewWorkspace = async () => {
           const name = newWsModal.name.trim();
@@ -521,8 +740,14 @@
           openNote(note.id);
         };
 
-        const openNote = async (note_id) => {
+        const openNote = async (note_id, target_workspace_id = null) => {
           if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; await saveNow(); }
+          // Cross-workspace open (clicked a memory result from another workspace):
+          // switch the active workspace first, then load that note.
+          if (target_workspace_id && target_workspace_id !== activeWorkspaceId.value) {
+            activeWorkspaceId.value = target_workspace_id;
+            await loadNotes();
+          }
           const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notes/${note_id}`, { credentials: 'same-origin' });
           if (!r.ok) { showToast('读取失败', 'error'); return; }
           activeNote.value = await r.json();
@@ -532,6 +757,9 @@
           await nextTick();
           mountEditor();
           loadBacklinks();
+          // Memory only auto-loads if the user is currently on that tab
+          // — avoids running the FTS5 query for every note click.
+          if (rightTab.value === 'memory') loadMemory();
         };
 
         const mountEditor = () => {
@@ -665,23 +893,45 @@
         }[saveState.value] || ''));
         const saveStateClass = computed(() => saveState.value);
 
+        // Auto-load memory when user first switches to the team-memory tab,
+        // so they don't see an empty pane and wonder if it's broken.
+        watch(rightTab, (newTab) => {
+          if (newTab === 'memory' && activeNote.value && !memoryResults.value.length) {
+            loadMemory();
+          }
+        });
+
         // Save before page unload (best-effort).
         const beforeUnload = () => { if (saveTimer) saveNow(); };
         onMounted(async () => {
           window.addEventListener('beforeunload', beforeUnload);
-          if (await fetchMe()) await loadWorkspaces();
+          if (await fetchMe()) {
+            await loadWorkspaces();
+            await loadAiStatus();
+          }
         });
-        onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload));
+        onUnmounted(() => {
+          window.removeEventListener('beforeunload', beforeUnload);
+          document.removeEventListener('click', handleDocClick);
+        });
 
         return {
           me, workspaces, activeWorkspaceId, notes, groupedNotes, activeNote, activeNoteTitle,
           backlinks, saveStateLabel, saveStateClass, editorPane,
           searchQuery, searchResults, searchFocused,
           newWsModal, conflictModal, toast,
+          // right-pane tabs
+          rightTab,
+          // AI
+          aiAvailable, aiMenuOpen, aiInput, aiBusy, aiAnchorToNote, aiMessages,
+          // memory
+          memoryResults, memoryBusy, memoryCrossWs, loadMemory,
+          // handlers
           onLoggedIn, logout, onWorkspaceChange, confirmNewWorkspace,
           createNotePrompt, openNote, deleteNote, renameIfChanged,
           conflictAcceptTheirs, conflictForceMine,
           onSearchInput, openSearchHit,
+          askAi, runWorkflow,
         };
       },
     };

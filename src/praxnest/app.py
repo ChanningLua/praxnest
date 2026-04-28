@@ -68,7 +68,9 @@ def create_app(*, data_dir: Path) -> FastAPI:
 
     # Mount API route modules.
     from .routes import (
-        audit_router, auth_router, notes_router, notes_search_router, workspaces_router,
+        ai_router, audit_router, auth_router,
+        memory_router, memory_cross_router,
+        notes_router, notes_search_router, workspaces_router,
     )
 
     app.include_router(auth_router)
@@ -76,6 +78,9 @@ def create_app(*, data_dir: Path) -> FastAPI:
     app.include_router(workspaces_router)
     app.include_router(notes_router)
     app.include_router(notes_search_router)
+    app.include_router(ai_router)
+    app.include_router(memory_router)
+    app.include_router(memory_cross_router)
 
     # Static index page (login + SPA shell). The ``request`` arg is
     # unused but kept for symmetry with other handlers; the ``Request``
