@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def db_path(data_dir: Path) -> Path:
@@ -186,6 +186,28 @@ CREATE INDEX IF NOT EXISTS idx_attachments_workspace ON attachments(workspace_id
 CREATE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256);
 """
 
+# ── Schema v3 ──────────────────────────────────────────────────────────────
+# Added: note_versions table — snapshot of each previous version of a
+# note. On every successful note update, the OLD body+title get inserted
+# here before the new version overwrites. Lets users roll back to any
+# prior state without us double-storing the *current* version.
+
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS note_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,        -- the version number this row REPRESENTS (the old one)
+    title TEXT NOT NULL,
+    body_md TEXT NOT NULL,
+    saved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_versions_note ON note_versions(note_id);
+"""
+
+
 MIGRATIONS = [
     (2, SCHEMA_V2),
+    (3, SCHEMA_V3),
 ]

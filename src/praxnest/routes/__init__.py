@@ -11,9 +11,11 @@ from .auth import router as auth_router
 from .memory import router as memory_router, cross_router as memory_cross_router
 from .notes import router as notes_router, search_router as notes_search_router
 from .notify import router as notify_router
-from .workspaces import router as workspaces_router
+from .presence import router as presence_router
+from .workspaces import router as workspaces_router, admin_router
 
 __all__ = [
+    "admin_router",
     "ai_router",
     "attachments_router",
     "attachments_serve_router",
@@ -24,5 +26,6 @@ __all__ = [
     "notes_router",
     "notes_search_router",
     "notify_router",
+    "presence_router",
     "workspaces_router",
 ]

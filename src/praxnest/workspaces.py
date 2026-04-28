@@ -135,6 +135,43 @@ def add_member(data_dir: Path, *, workspace_id: int, user_id: int, role: str = "
         conn.close()
 
 
+def remove_member(data_dir: Path, *, workspace_id: int, user_id: int) -> bool:
+    """Drop a user from a workspace. Returns True if a row was removed.
+
+    No "last admin protection" — V0.1 keeps it simple. Removing the
+    last admin is recoverable via direct SQL by anyone with disk access,
+    which is the threat model praxnest is built for (small team,
+    trusted server admin).
+    """
+    conn = db.connect(data_dir)
+    try:
+        cur = conn.execute(
+            "DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?",
+            (workspace_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def set_member_role(data_dir: Path, *, workspace_id: int, user_id: int, role: str) -> bool:
+    """Change a member's role. Returns False if they're not a member.
+    Doesn't auto-add — caller checks membership first if needed."""
+    if role not in {"admin", "member"}:
+        raise ValueError(f"role must be admin|member, got {role!r}")
+    conn = db.connect(data_dir)
+    try:
+        cur = conn.execute(
+            "UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?",
+            (role, workspace_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def list_members(data_dir: Path, workspace_id: int) -> list[dict[str, Any]]:
     conn = db.connect(data_dir)
     try:

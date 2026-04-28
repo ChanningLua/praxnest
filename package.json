@@ -1,6 +1,6 @@
 {
   "name": "praxnest",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first team AI workspace — collaborative markdown + PRD/bug/test workflows + team memory, on-prem deployable.",
   "bin": {
     "praxnest": "bin/praxnest.js"

@@ -145,13 +145,18 @@ def update(
     title: str | None = None,
     user_id: int,
 ) -> dict[str, Any]:
-    """Last-write-wins update.
+    """Last-write-wins update with version-history snapshot.
 
     The client sends the version it loaded. If the db has moved past
     that version (someone else saved in between), we raise
     ``NoteVersionConflict`` containing the current state. The client
     decides whether to overwrite (call ``update`` again with the new
     version) or surface a merge UI to the user.
+
+    Before overwriting the row, we snapshot the OLD ``(title, body_md,
+    version)`` into ``note_versions`` so users can roll back. The
+    snapshot is conditional on actual content change — a no-op save
+    (same body + same title) doesn't generate a version row.
     """
     conn = db.connect(data_dir)
     try:
@@ -171,7 +176,23 @@ def update(
         new_title = row["title"] if title is None else (title or "").strip()
         if not new_title:
             raise ValueError("title must not be empty")
+
+        # No-op: nothing to save, don't churn version or history.
+        if new_body == row["body_md"] and new_title == row["title"]:
+            return get(data_dir, note_id)
+
         new_version = row["version"] + 1
+
+        # Snapshot the OLD content (the version we're about to replace)
+        # into note_versions BEFORE the UPDATE. Same connection +
+        # commit so it's atomic with the write.
+        conn.execute(
+            """
+            INSERT INTO note_versions (note_id, version, title, body_md, saved_by)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (note_id, row["version"], row["title"], row["body_md"], user_id),
+        )
 
         try:
             conn.execute(
@@ -192,6 +213,83 @@ def update(
     finally:
         conn.close()
     return get(data_dir, note_id)
+
+
+def list_versions(data_dir: Path, *, note_id: int) -> list[dict[str, Any]]:
+    """Return historical versions of a note, newest first.
+
+    Each row is ``{version, title, saved_by_username, saved_at,
+    body_preview}``. Body preview is the first 200 chars to keep the
+    listing payload small; full body comes from a separate get_version
+    call when the user clicks one.
+    """
+    conn = db.connect(data_dir)
+    try:
+        rows = conn.execute(
+            """
+            SELECT v.id, v.version, v.title,
+                   substr(v.body_md, 1, 200) AS body_preview,
+                   v.saved_at, v.saved_by,
+                   u.username AS saved_by_username
+              FROM note_versions v
+              LEFT JOIN users u ON u.id = v.saved_by
+             WHERE v.note_id = ?
+             ORDER BY v.version DESC
+            """,
+            (note_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_version(data_dir: Path, *, version_id: int) -> dict[str, Any]:
+    """Read a single version's full body. Raises NoteNotFound."""
+    conn = db.connect(data_dir)
+    try:
+        row = conn.execute(
+            """
+            SELECT v.id, v.note_id, v.version, v.title, v.body_md,
+                   v.saved_at, v.saved_by,
+                   u.username AS saved_by_username
+              FROM note_versions v
+              LEFT JOIN users u ON u.id = v.saved_by
+             WHERE v.id = ?
+            """,
+            (version_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise NoteNotFound(f"version {version_id} not found")
+    return dict(row)
+
+
+def restore_version(
+    data_dir: Path, *, note_id: int, version_id: int, user_id: int,
+) -> dict[str, Any]:
+    """Roll the live note back to a snapshotted version.
+
+    Mechanically just an `update` with the snapshot's body + title;
+    that puts the CURRENT content into note_versions (so the rollback
+    itself is reversible) and then writes the snapshot's content as the
+    new live version. Idempotent in the sense that restoring N times
+    just keeps adding history rows — never destructive.
+    """
+    snap = get_version(data_dir, version_id=version_id)
+    if snap["note_id"] != note_id:
+        raise NoteNotFound(f"version {version_id} doesn't belong to note {note_id}")
+
+    # Need the current note's version for the LWW guard.
+    current = get(data_dir, note_id)
+    return update(
+        data_dir,
+        note_id=note_id,
+        expected_version=current["version"],
+        body_md=snap["body_md"],
+        title=snap["title"],
+        user_id=user_id,
+    )
 
 
 def delete(data_dir: Path, *, note_id: int) -> bool:

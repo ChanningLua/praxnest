@@ -2,6 +2,56 @@
 
 All notable changes to praxnest will be documented in this file.
 
+## [0.3.0] - 2026-04-28
+
+V0.3 closes the "actually usable team tool" gaps. After this, a 5-30
+person team can run praxnest end-to-end without dropping into SQL.
+
+### Added
+
+- **GUI member management** (`workspace.member.add` / `.remove` /
+  `.role` routes + `/api/admin/users` for system-admin user creation).
+  Admin opens 👥 in the topbar → invite existing users by username,
+  remove, or change role. New-account creation form built in.
+  Self-removal is blocked (common finger-slip).
+- **Presence indicators** (`presence.py` + `routes/presence.py`).
+  In-memory store + 30s heartbeat from each open tab. Topbar shows
+  "🟢 N 在线" pill; click for the list of online members in the
+  current workspace. Soft 90s window so one missed beat doesn't
+  flicker offline.
+- **Note version history + restore** (schema v3 `note_versions`
+  table). Every save snapshots the previous content; restore writes
+  the snapshot's body back to live (which itself snapshots — every
+  restore is reversible). Editor header gets ⟲ button → modal with
+  per-version preview + restore button.
+- **Onboarding wizard** — first login on a fresh install opens a
+  modal with 4 steps (workspace / members / AI status check / write
+  first note). Auto-detects step completion from current state;
+  dismissible via "不再提示" persisted in localStorage.
+- **AI workflow → 推群 button** — every AI sidebar reply gets a
+  channel dropdown + 推群 button. Hits the V0.2 notify route to
+  forward the AI output directly to wechat / feishu without
+  copy-paste. Channels read from `~/.prax/notify.yaml`.
+
+### Changed
+
+- **Schema migration system** can now apply V3 over V1 / V2 cleanly.
+  `db.initialize` reads stored version + applies any deltas above it
+  in order.
+
+### Tests
+
+171 unit tests pass (added 18 members + 8 presence + 9 versions).
+
+### Known limitations carried into V0.3
+
+Still **not** implemented (see README's "它不解决什么" section): real-
+time CRDT collaboration, CRDT-vs-LWW for note edits, comment
+threads, mobile UI, offline editing, SSO/OIDC, fine-grained RBAC,
+GitHub/Jira/Linear integrations. These are explicitly out of scope
+for V0.x; V1.0 will pick the next 1-2 to address based on actual
+usage data.
+
 ## [0.2.0] - 2026-04-28
 
 ### Added — closing the V0.1 gaps from the honest scope review

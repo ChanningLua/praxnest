@@ -68,18 +68,22 @@ def create_app(*, data_dir: Path) -> FastAPI:
 
     # Mount API route modules.
     from .routes import (
+        admin_router,
         ai_router, attachments_router, attachments_serve_router,
         audit_router, auth_router,
         memory_router, memory_cross_router,
-        notes_router, notes_search_router, notify_router, workspaces_router,
+        notes_router, notes_search_router, notify_router,
+        presence_router, workspaces_router,
     )
 
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(audit_router)
     app.include_router(workspaces_router)
     app.include_router(notes_router)
     app.include_router(notes_search_router)
     app.include_router(ai_router)
+    app.include_router(presence_router)
     app.include_router(memory_router)
     app.include_router(memory_cross_router)
     app.include_router(attachments_router)

@@ -200,3 +200,90 @@ def search_notes(
             request.app.state.data_dir, workspace_id=workspace_id, query=q, limit=limit,
         ),
     }
+
+
+# ── Version history (V0.3) ──────────────────────────────────────────────────
+
+
+@router.get("/{note_id}/versions")
+def list_note_versions(
+    workspace_id: int, note_id: int, request: Request, user=Depends(require_user),
+) -> dict[str, Any]:
+    """Snapshots of this note before each update.
+
+    Returns body PREVIEW (first 200 chars) per row to keep the listing
+    payload small; full body via /versions/{version_id}.
+    """
+    _check_member(request, workspace_id, user)
+    data_dir = request.app.state.data_dir
+    try:
+        note = notes.get(data_dir, note_id)
+    except notes.NoteNotFound:
+        raise HTTPException(404, "note not found")
+    if note["workspace_id"] != workspace_id:
+        raise HTTPException(404, "note not found in this workspace")
+    return {"versions": notes.list_versions(data_dir, note_id=note_id)}
+
+
+@router.get("/{note_id}/versions/{version_id}")
+def get_note_version(
+    workspace_id: int, note_id: int, version_id: int, request: Request,
+    user=Depends(require_user),
+) -> dict[str, Any]:
+    _check_member(request, workspace_id, user)
+    data_dir = request.app.state.data_dir
+    try:
+        note = notes.get(data_dir, note_id)
+    except notes.NoteNotFound:
+        raise HTTPException(404, "note not found")
+    if note["workspace_id"] != workspace_id:
+        raise HTTPException(404, "note not found in this workspace")
+    try:
+        snap = notes.get_version(data_dir, version_id=version_id)
+    except notes.NoteNotFound:
+        raise HTTPException(404, "version not found")
+    if snap["note_id"] != note_id:
+        # Cross-note version probe — defensively 404.
+        raise HTTPException(404, "version not found for this note")
+    return snap
+
+
+@router.post("/{note_id}/versions/{version_id}/restore")
+def restore_note_version(
+    workspace_id: int, note_id: int, version_id: int, request: Request,
+    user=Depends(require_user),
+) -> dict[str, Any]:
+    """Roll the note's live content back to this snapshot.
+
+    The current content gets snapshotted in turn — restore is not
+    destructive. Returns the new live note row.
+    """
+    _check_member(request, workspace_id, user)
+    data_dir = request.app.state.data_dir
+    try:
+        note = notes.get(data_dir, note_id)
+    except notes.NoteNotFound:
+        raise HTTPException(404, "note not found")
+    if note["workspace_id"] != workspace_id:
+        raise HTTPException(404, "note not found in this workspace")
+
+    try:
+        restored = notes.restore_version(
+            data_dir, note_id=note_id, version_id=version_id, user_id=user["id"],
+        )
+    except notes.NoteNotFound:
+        raise HTTPException(404, "version not found for this note")
+    except notes.NoteAlreadyExists as exc:
+        # Restoring an old title where the same title was reused for
+        # another note in the meantime → conflict, surface to user.
+        raise HTTPException(409, str(exc))
+
+    audit.log(
+        data_dir, actor_id=user["id"], actor_username=user["username"],
+        action="note.restore",
+        target={
+            "workspace_id": workspace_id, "note_id": note_id,
+            "from_version_id": version_id, "new_version": restored["version"],
+        },
+    )
+    return restored

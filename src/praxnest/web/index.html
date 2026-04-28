@@ -245,6 +245,61 @@
     .modal h2 { margin: 0 0 12px; font-size: 16px; }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
+    /* Presence pill in topbar */
+    .presence-pill {
+      padding: 4px 10px; font-size: 11px; border-radius: 12px;
+      background: rgba(61, 222, 157, 0.1); color: var(--ok);
+      border: 1px solid rgba(61, 222, 157, 0.3);
+      cursor: pointer; user-select: none;
+    }
+    .presence-pill:hover { background: rgba(61, 222, 157, 0.18); }
+    .presence-popup {
+      position: absolute; top: 44px; right: 200px;
+      background: rgba(10, 13, 24, 0.98); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px; min-width: 200px; z-index: 80;
+    }
+    .presence-row {
+      padding: 6px 8px; font-size: 13px; display: flex; gap: 8px; align-items: center;
+    }
+    .presence-row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+    /* Onboarding modal */
+    .onboarding-step { display: flex; gap: 12px; padding: 8px 0; }
+    .onboarding-step .num {
+      width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+      display: grid; place-items: center; font-weight: 600; font-size: 12px;
+      background: rgba(110, 231, 255, 0.1); color: var(--acc);
+    }
+    .onboarding-step.done .num { background: var(--ok); color: #04050a; }
+    .onboarding-step .text { flex: 1; }
+    .onboarding-step .text .label { font-size: 13px; }
+    .onboarding-step .text .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* Version-history modal table */
+    .version-row {
+      padding: 8px; cursor: pointer; border-radius: 4px;
+      display: flex; gap: 8px; align-items: baseline;
+    }
+    .version-row:hover { background: rgba(255,255,255,0.04); }
+    .version-row.current { color: var(--muted); cursor: default; }
+    .version-row .v { font-family: "SF Mono", monospace; font-size: 11px; color: var(--acc); min-width: 36px; }
+    .version-row .meta { font-size: 11px; color: var(--muted); margin-left: auto; }
+    .version-preview {
+      padding: 12px; background: var(--bg-input); border-radius: 6px;
+      font-family: "SF Mono", monospace; font-size: 12px;
+      max-height: 240px; overflow: auto; white-space: pre-wrap;
+    }
+
+    /* AI msg push-channel footer */
+    .ai-msg-actions {
+      margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05);
+      display: flex; gap: 6px; align-items: center;
+      font-size: 11px; color: var(--muted);
+    }
+    .ai-msg-actions select, .ai-msg-actions button {
+      font-size: 11px; padding: 3px 6px;
+    }
+
     /* Toast */
     .toast {
       position: fixed; bottom: 20px; right: 20px;
@@ -345,7 +400,21 @@
               </div>
             </div>
 
-            <div class="right">
+            <div class="right" style="position: relative;">
+              <div v-if="presence.online.length > 0" class="presence-pill"
+                   @click.stop="presence.popoverOpen = !presence.popoverOpen">
+                🟢 {{ presence.online.length }} 在线
+              </div>
+              <div v-if="presence.popoverOpen" class="presence-popup" @click.stop>
+                <div v-for="u in presence.online" :key="u.id" class="presence-row">
+                  <span class="dot"></span>
+                  <span>{{ u.username }}</span>
+                  <span style="font-size:10px;color:var(--muted);margin-left:auto;">{{ u.workspace_role }}</span>
+                </div>
+              </div>
+              <button v-if="me.role === 'admin'" class="secondary" @click="openMembersModal" title="成员管理">
+                👥
+              </button>
               <span class="mono">{{ me.username }}</span>
               <button class="secondary" @click="logout">登出</button>
             </div>
@@ -395,6 +464,7 @@
                   <div class="ai-action" @click="runWorkflow('test-report', 'summary')">生成执行摘要</div>
                 </div>
               </div>
+              <button class="secondary" @click="openVersionsModal" title="历史版本">⟲</button>
               <button class="danger" @click="deleteNote">删除</button>
             </div>
             <div class="editor-pane" ref="editorPane">
@@ -458,6 +528,17 @@
                   <div v-for="(m, i) in aiMessages" :key="i" :class="['ai-msg', m.role]">
                     <div v-if="m.anchor" class="ai-anchor">📎 {{ m.anchor }}</div>
                     {{ m.text }}
+                    <!-- AI replies get a "push to channel" footer if any prax notify channels exist -->
+                    <div v-if="m.role === 'ai' && notifyChannels.length > 0" class="ai-msg-actions">
+                      <span>推到</span>
+                      <select v-model="m.pushChannel" :disabled="m.pushBusy">
+                        <option v-for="ch in notifyChannels" :key="ch" :value="ch">{{ ch }}</option>
+                      </select>
+                      <button @click="pushAiMessage(m)" :disabled="m.pushBusy || !m.pushChannel">
+                        {{ m.pushBusy ? '推送中…' : '推群' }}
+                      </button>
+                      <span v-if="m.pushSent" style="color: var(--ok);">✓ 已推</span>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -525,6 +606,155 @@
           </div>
         </div>
 
+        <!-- Onboarding modal -->
+        <div v-if="onboarding.open" class="modal-overlay" @click.self="dismissOnboarding">
+          <div class="modal" style="max-width: 480px;">
+            <h2>欢迎，praxnest 第一次使用</h2>
+            <p style="color: var(--muted); font-size: 13px; line-height: 1.6;">
+              4 步搞定一个能用的团队空间。先把这单子走完，每步完成自动打勾。
+            </p>
+
+            <div :class="['onboarding-step', onboarding.step1 ? 'done' : '']">
+              <div class="num">{{ onboarding.step1 ? '✓' : '1' }}</div>
+              <div class="text">
+                <div class="label">创建第一个工作空间</div>
+                <div class="hint">PRD / bug / 测试报告归一类。</div>
+              </div>
+              <button v-if="!onboarding.step1" @click="onboarding.open = false; newWsModal.open = true">
+                创建
+              </button>
+            </div>
+
+            <div :class="['onboarding-step', onboarding.step2 ? 'done' : '']">
+              <div class="num">{{ onboarding.step2 ? '✓' : '2' }}</div>
+              <div class="text">
+                <div class="label">加同事进来（可选）</div>
+                <div class="hint">先给同事建账号 → 加入工作空间。系统 admin 才能创建账号。</div>
+              </div>
+              <button v-if="me.role === 'admin' && onboarding.step1 && !onboarding.step2"
+                      @click="onboarding.open = false; openMembersModal()">
+                管理成员
+              </button>
+            </div>
+
+            <div :class="['onboarding-step', onboarding.step3 ? 'done' : '']">
+              <div class="num">{{ onboarding.step3 ? '✓' : '3' }}</div>
+              <div class="text">
+                <div class="label">检查 AI 助手能不能用</div>
+                <div class="hint">{{ aiAvailable ? '已就绪 — praxagent 在 PATH 里 ✓' : '需要装 praxagent: npm install -g praxagent' }}</div>
+              </div>
+            </div>
+
+            <div :class="['onboarding-step']">
+              <div class="num">4</div>
+              <div class="text">
+                <div class="label">写第一篇笔记</div>
+                <div class="hint">关掉这个对话框，左侧栏「+」就能开始。</div>
+              </div>
+            </div>
+
+            <div class="modal-actions">
+              <button class="secondary" @click="dismissOnboarding">关闭，不再提示</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Members modal (admin) -->
+        <div v-if="membersModal.open" class="modal-overlay" @click.self="membersModal.open = false">
+          <div class="modal" style="max-width: 600px;">
+            <h2>成员管理 — {{ workspaces.find(w => w.id === activeWorkspaceId)?.name || '当前工作空间' }}</h2>
+
+            <h3 style="font-size: 13px; margin-top: 16px; color: var(--muted);">本空间成员</h3>
+            <div v-if="membersModal.members.length === 0" style="font-size: 12px; color: var(--muted);">
+              暂无（除你之外）
+            </div>
+            <div v-for="m in membersModal.members" :key="m.id"
+                 style="display:flex; gap:8px; align-items:center; padding:6px 0; border-bottom: 1px solid var(--border);">
+              <span class="mono" style="font-size:13px;">{{ m.username }}</span>
+              <select v-model="m.workspace_role" @change="setMemberRole(m.id, m.workspace_role)"
+                      :disabled="m.id === me.id" style="font-size: 11px;">
+                <option value="admin">admin</option>
+                <option value="member">member</option>
+              </select>
+              <span style="margin-left: auto;">
+                <button v-if="m.id !== me.id" class="danger" @click="removeMember(m.id)">移出</button>
+                <span v-else style="font-size:11px; color: var(--muted);">（你自己）</span>
+              </span>
+            </div>
+
+            <h3 style="font-size: 13px; margin-top: 16px; color: var(--muted);">邀请已有用户加入</h3>
+            <div style="display:flex; gap:8px;">
+              <input v-model="membersModal.inviteUsername" placeholder="用户名" style="flex:1;" />
+              <select v-model="membersModal.inviteRole" style="font-size: 12px;">
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+              </select>
+              <button @click="inviteMember">+ 加入</button>
+            </div>
+            <div v-if="membersModal.inviteError" style="font-size:11px; color: var(--danger); margin-top: 4px;">
+              {{ membersModal.inviteError }}
+            </div>
+
+            <h3 style="font-size: 13px; margin-top: 20px; color: var(--muted);">创建新账号（系统级）</h3>
+            <div style="display:flex; gap:8px;">
+              <input v-model="membersModal.newUsername" placeholder="用户名" style="flex:1;" />
+              <input v-model="membersModal.newPassword" type="password" placeholder="密码（8+ 位）" style="flex:1;" />
+              <button @click="createUser">创建</button>
+            </div>
+            <div v-if="membersModal.createError" style="font-size:11px; color: var(--danger); margin-top: 4px;">
+              {{ membersModal.createError }}
+            </div>
+
+            <div class="modal-actions">
+              <button class="secondary" @click="membersModal.open = false">关闭</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Versions modal -->
+        <div v-if="versionsModal.open" class="modal-overlay" @click.self="versionsModal.open = false">
+          <div class="modal" style="max-width: 720px; min-width: 600px;">
+            <h2>历史版本 — {{ activeNote?.title }}</h2>
+            <div v-if="versionsModal.list.length === 0" style="font-size:12px; color: var(--muted);">
+              这篇笔记还没有历史版本。每次保存内容变化时会自动留档。
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-top: 12px;" v-else>
+              <div>
+                <div class="version-row current">
+                  <span class="v">v{{ activeNote?.version }}</span>
+                  <span>当前版本</span>
+                </div>
+                <div v-for="v in versionsModal.list" :key="v.id"
+                     class="version-row" :class="{active: versionsModal.selected?.id === v.id}"
+                     @click="loadVersion(v)">
+                  <span class="v">v{{ v.version }}</span>
+                  <span>{{ v.title }}</span>
+                  <span class="meta">
+                    {{ v.saved_by_username || '—' }} · {{ v.saved_at }}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div v-if="!versionsModal.selected" style="font-size:12px;color:var(--muted);">
+                  点左侧某版本预览。
+                </div>
+                <div v-else>
+                  <div style="font-size:11px; color: var(--muted); margin-bottom:6px;">
+                    v{{ versionsModal.selected.version }} · {{ versionsModal.selected.saved_by_username || '—' }} · {{ versionsModal.selected.saved_at }}
+                  </div>
+                  <pre class="version-preview">{{ versionsModal.selected.body_md || '' }}</pre>
+                  <button @click="restoreVersion(versionsModal.selected.id)" style="margin-top:8px;">
+                    恢复到这个版本
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="secondary" @click="versionsModal.open = false">关闭</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Toast -->
         <div v-if="toast.message" :class="['toast', toast.kind]">{{ toast.message }}</div>
       `,
@@ -564,9 +794,203 @@
         const memoryBusy = ref(false);
         const memoryCrossWs = ref(false);
 
-        // Click-outside closes AI menu
-        const handleDocClick = () => { aiMenuOpen.value = false; };
+        // Click-outside closes AI menu + presence popover
+        const handleDocClick = () => {
+          aiMenuOpen.value = false;
+          presence.popoverOpen = false;
+        };
         document.addEventListener('click', handleDocClick);
+
+        // Presence — heartbeat ping + workspace online roster
+        const presence = reactive({ online: [], total: 0, popoverOpen: false });
+        let heartbeatTimer = null;
+        const startHeartbeat = () => {
+          // Ping immediately on login + every 30s while page open.
+          // Server's online window is 90s so one missed beat is fine.
+          const ping = async () => {
+            try { await fetch('/api/heartbeat', { method: 'POST', credentials: 'same-origin' }); } catch {}
+          };
+          ping();
+          heartbeatTimer = setInterval(() => {
+            ping();
+            loadPresence();
+          }, 30000);
+        };
+        const stopHeartbeat = () => {
+          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        };
+        const loadPresence = async () => {
+          if (!activeWorkspaceId.value) return;
+          try {
+            const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/online`, { credentials: 'same-origin' });
+            if (r.ok) {
+              const d = await r.json();
+              presence.online = d.online || [];
+              presence.total = d.total_members || 0;
+            }
+          } catch {}
+        };
+
+        // Onboarding state — derive from observed completion.
+        const ONBOARDING_KEY = 'praxnest.onboarding_dismissed';
+        const onboarding = reactive({
+          open: false,
+          step1: false,  // workspace created
+          step2: false,  // ≥1 other member
+          step3: false,  // praxagent on PATH
+        });
+        const dismissOnboarding = () => {
+          onboarding.open = false;
+          try { localStorage.setItem(ONBOARDING_KEY, '1'); } catch {}
+        };
+        const maybeShowOnboarding = () => {
+          // Show only once per browser. Skip if user already has things set up.
+          let dismissed = false;
+          try { dismissed = localStorage.getItem(ONBOARDING_KEY) === '1'; } catch {}
+          onboarding.step1 = workspaces.value.length > 0;
+          // step2 fires when there's >1 member in any workspace; check first workspace
+          // Approximate — load full members list lazily.
+          onboarding.step3 = aiAvailable.value;
+          // Open if not yet dismissed AND not yet fully set up.
+          if (!dismissed && !(onboarding.step1 && onboarding.step3)) {
+            onboarding.open = true;
+          }
+        };
+
+        // Members modal (admin)
+        const membersModal = reactive({
+          open: false, members: [],
+          inviteUsername: '', inviteRole: 'member', inviteError: '',
+          newUsername: '', newPassword: '', createError: '',
+        });
+        const openMembersModal = async () => {
+          if (!activeWorkspaceId.value) return;
+          membersModal.open = true;
+          membersModal.inviteError = '';
+          membersModal.createError = '';
+          await loadMembers();
+          // Step-2 onboarding is "≥1 other member" — refresh now that we know.
+          onboarding.step2 = membersModal.members.length > 1;
+        };
+        const loadMembers = async () => {
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/members`, { credentials: 'same-origin' });
+          if (r.ok) membersModal.members = (await r.json()).members || [];
+        };
+        const inviteMember = async () => {
+          membersModal.inviteError = '';
+          const username = membersModal.inviteUsername.trim();
+          if (!username) return;
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/members`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ username, role: membersModal.inviteRole }),
+          });
+          if (!r.ok) {
+            membersModal.inviteError = (await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`;
+            return;
+          }
+          membersModal.inviteUsername = '';
+          await loadMembers();
+          showToast(`已加入 ${username}`, 'success');
+        };
+        const removeMember = async (memberUserId) => {
+          if (!confirm('移出该成员？他们之后看不到这个工作空间。')) return;
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/members/${memberUserId}`, {
+            method: 'DELETE', credentials: 'same-origin',
+          });
+          if (!r.ok) { showToast('移出失败：' + ((await r.json()).detail || r.statusText), 'error'); return; }
+          await loadMembers();
+        };
+        const setMemberRole = async (memberUserId, role) => {
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/members/${memberUserId}/role`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({ role }),
+          });
+          if (!r.ok) { showToast('改角色失败', 'error'); return; }
+          showToast(`角色已改为 ${role}`, 'success');
+        };
+        const createUser = async () => {
+          membersModal.createError = '';
+          const username = membersModal.newUsername.trim();
+          const password = membersModal.newPassword;
+          if (!username || !password) {
+            membersModal.createError = '用户名和密码都得填'; return;
+          }
+          const r = await fetch('/api/admin/users', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ username, password, role: 'member' }),
+          });
+          if (!r.ok) {
+            membersModal.createError = (await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`;
+            return;
+          }
+          membersModal.newUsername = ''; membersModal.newPassword = '';
+          showToast(`✓ 账号 ${username} 已创建（还没加入工作空间）`, 'success');
+        };
+
+        // Versions modal
+        const versionsModal = reactive({
+          open: false, list: [], selected: null,
+        });
+        const openVersionsModal = async () => {
+          if (!activeNote.value) return;
+          versionsModal.open = true;
+          versionsModal.selected = null;
+          const r = await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/versions`,
+            { credentials: 'same-origin' });
+          if (r.ok) versionsModal.list = (await r.json()).versions || [];
+        };
+        const loadVersion = async (v) => {
+          const r = await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/versions/${v.id}`,
+            { credentials: 'same-origin' });
+          if (r.ok) versionsModal.selected = await r.json();
+        };
+        const restoreVersion = async (versionId) => {
+          if (!confirm('恢复到该版本？当前版本会自动留档（这个操作可逆）。')) return;
+          const r = await fetch(
+            `/api/workspaces/${activeWorkspaceId.value}/notes/${activeNote.value.id}/versions/${versionId}/restore`,
+            { method: 'POST', credentials: 'same-origin' });
+          if (!r.ok) { showToast('恢复失败：' + ((await r.json()).detail || r.statusText), 'error'); return; }
+          versionsModal.open = false;
+          // Reload the note in editor.
+          await openNote(activeNote.value.id);
+          showToast('✓ 已恢复', 'success');
+        };
+
+        // Notify channels for the AI push-to-channel button
+        const notifyChannels = ref([]);
+        const loadNotifyChannels = async () => {
+          if (!activeWorkspaceId.value) return;
+          try {
+            const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notify/channels`, { credentials: 'same-origin' });
+            if (r.ok) notifyChannels.value = (await r.json()).channels || [];
+          } catch {}
+        };
+        const pushAiMessage = async (m) => {
+          if (!m.pushChannel) return;
+          m.pushBusy = true;
+          try {
+            const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/notify/push`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                channel: m.pushChannel,
+                title: m.anchor ? `praxnest · ${m.anchor}` : 'praxnest 输出',
+                body: m.text,
+              }),
+            });
+            if (!r.ok) {
+              const d = await r.json().catch(() => ({}));
+              showToast('推送失败：' + (d.detail || r.statusText), 'error', 6000);
+              return;
+            }
+            m.pushSent = true;
+            showToast(`已推到 ${m.pushChannel}`, 'success');
+          } finally { m.pushBusy = false; }
+        };
 
         const showToast = (message, kind = 'info', timeout = 3000) => {
           toast.message = message; toast.kind = kind;
@@ -612,8 +1036,7 @@
           activeNote.value = null;
           aiMessages.value = [];
           memoryResults.value = [];
-          await loadNotes();
-          await loadAiStatus();
+          await Promise.all([loadNotes(), loadAiStatus(), loadPresence(), loadNotifyChannels()]);
         };
 
         const loadAiStatus = async () => {
@@ -965,11 +1388,16 @@
           if (await fetchMe()) {
             await loadWorkspaces();
             await loadAiStatus();
+            await loadNotifyChannels();
+            await loadPresence();
+            startHeartbeat();
+            maybeShowOnboarding();
           }
         });
         onUnmounted(() => {
           window.removeEventListener('beforeunload', beforeUnload);
           document.removeEventListener('click', handleDocClick);
+          stopHeartbeat();
         });
 
         return {
@@ -989,6 +1417,11 @@
           conflictAcceptTheirs, conflictForceMine,
           onSearchInput, openSearchHit,
           askAi, runWorkflow,
+          // presence + onboarding + members + versions + push
+          presence, onboarding, dismissOnboarding,
+          membersModal, openMembersModal, inviteMember, removeMember, setMemberRole, createUser,
+          versionsModal, openVersionsModal, loadVersion, restoreVersion,
+          notifyChannels, pushAiMessage,
         };
       },
     };
