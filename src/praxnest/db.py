@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def db_path(data_dir: Path) -> Path:
@@ -38,14 +38,29 @@ def connect(data_dir: Path) -> sqlite3.Connection:
 
 def initialize(data_dir: Path) -> None:
     """Create or migrate the schema. Idempotent — safe to call on every
-    server start."""
+    server start.
+
+    Schema migrations live as a list of incremental SQL blocks; we
+    detect the current version in the db and apply any deltas above
+    it. CREATE TABLE / CREATE INDEX statements are all guarded with
+    IF NOT EXISTS so a fresh-start install just runs them all.
+    """
     Path(data_dir).mkdir(parents=True, exist_ok=True)
     conn = connect(data_dir)
     try:
         conn.executescript(SCHEMA_V1)
-        # Future migrations: detect schema_version, run delta DDL.
+        # Read the persisted version (or 0 if the schema_version row
+        # doesn't exist yet — old install).
+        row = conn.execute("SELECT version FROM schema_version WHERE id = 1").fetchone()
+        current = int(row["version"]) if row else 0
+
+        for to_version, ddl in MIGRATIONS:
+            if current < to_version:
+                conn.executescript(ddl)
+                current = to_version
+
         conn.execute(
-            "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, ?)",
+            "INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, ?)",
             (SCHEMA_VERSION,),
         )
         conn.commit()
@@ -149,3 +164,28 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit(actor_id);
 """
+
+
+# ── Schema v2 ──────────────────────────────────────────────────────────────
+# Added: attachments table (V0.2). Files are stored on disk under
+# `<data-dir>/attachments/<sha256>` and metadata in this table.
+
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    sha256 TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_workspace ON attachments(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256);
+"""
+
+MIGRATIONS = [
+    (2, SCHEMA_V2),
+]

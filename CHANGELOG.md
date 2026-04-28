@@ -2,6 +2,41 @@
 
 All notable changes to praxnest will be documented in this file.
 
+## [0.2.0] - 2026-04-28
+
+### Added — closing the V0.1 gaps from the honest scope review
+
+- **Attachments / file uploads** (`src/praxnest/attachments.py` +
+  `routes/attachments.py`). Drag-drop or paste-from-clipboard into
+  the editor; server stores files content-addressed by sha256
+  (dedupe across notes), returns a markdown snippet (`![](url)` for
+  images, `[name](url)` otherwise) the editor inserts at cursor.
+  ACL: serve route 404s for non-members. SVG / HTML never served
+  inline — XSS-safe Content-Disposition rules. 25 MB per-file cap,
+  5 GB per-workspace quota.
+- **Notify integration** (`src/praxnest/notify.py` +
+  `routes/notify.py`). `GET /api/workspaces/{ws}/notify/channels`
+  reads `~/.prax/notify.yaml` directly. `POST /api/workspaces/{ws}/notify/push`
+  sends either a note's body or arbitrary text through the user's
+  configured wechat / feishu / lark channel. Subprocess to praxagent;
+  503 if praxagent missing, 502 if upstream push fails.
+- **Honest scope section** in README + article — explicit list of
+  what praxnest doesn't do and shouldn't be tried for. No more
+  "团队协作平台" overclaim.
+
+### Changed
+
+- **Schema migration system** — `db.initialize` now reads the stored
+  schema_version, applies any deltas above it, atomically. Future
+  schema bumps just append a `(version, ddl)` tuple to `MIGRATIONS`
+  and update `SCHEMA_VERSION`.
+- README's "三大支柱" table now shows V0.1 vs V0.2 vs V0.3+ deltas
+  cleanly.
+
+### Tests
+
+135 unit tests pass (added 19 attachments + 15 notify).
+
 ## [0.1.0] - 2026-04-28
 
 Initial release — V0.1 骨架。三大支柱里的第一个（协同空间）落地，

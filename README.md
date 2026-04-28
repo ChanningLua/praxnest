@@ -49,6 +49,42 @@ V0.2 路线：实时协作（Yjs CRDT）/ 笔记 embed（vector）/ 跨笔记 pu
 
 ---
 
+## 它**不**解决什么 — 看清楚再决定要不要用
+
+praxnest **只**解决团队协作的一小块：把产研测三类文档（PRD / bug / 测试报告）以及它们之间的关联，从云端 SaaS 收回内网 + 内嵌 AI。
+
+你团队的其他协作需求 —— 这些 **praxnest 不做、也不打算做**：
+
+| 需求 | 用什么 |
+|---|---|
+| IM / 即时聊天 | 飞书 / 企微 / Slack |
+| 视频会议 | Zoom / 腾讯会议 |
+| 任务 / 看板 / 燃尽图 | Linear / Jira / Trello |
+| 代码 review | GitHub / GitLab |
+| 客户管理 | CRM 工具 |
+
+V0.1 还**没解决**的（V0.2-V0.3 路线）：
+
+- 实时协作（V0.1 是 LWW + 冲突弹窗，不是 CRDT）
+- 附件 / 图片（V0.1 只有纯 markdown，bug 截图贴不了 — V0.2 修）
+- 通知 / 提醒（V0.2 接 prax notify）
+- 批注 / 评论
+- 历史回滚（V0.1 audit log 只记录 "谁改了" 不存内容快照）
+- 移动端 / 离线
+- SSO / 细粒度 RBAC
+- 跨工具集成（GitHub PR / Jira ticket 双向同步）
+
+如果你团队的核心痛点在上面这些里，**先别试 praxnest**。等 V0.2/V0.3 或者用别的工具更合适。
+
+praxnest 现在的最佳适配场景：
+
+- **5-30 人技术团队，公司内网部署**
+- 产品 / 研发 / 测试 三方需要把 PRD / bug / 测试报告写下来 + AI 帮整理
+- 数据合规要求"不出公司"
+- 接受异步协作（不是秒级实时）
+
+---
+
 ## 5 分钟内网部署（docker-compose）
 
 需要：装了 Docker 的一台机器（macOS / Linux 都行；Windows 用 Docker Desktop 也行）。

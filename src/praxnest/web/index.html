@@ -777,9 +777,66 @@
                 EditorView.updateListener.of((v) => {
                   if (v.docChanged) onBodyChange();
                 }),
+                // Paste / drop handlers — uploads files, inserts the
+                // server-returned markdown snippet at the cursor.
+                EditorView.domEventHandlers({
+                  paste: (event, view) => handleClipboardPaste(event, view),
+                  drop:  (event, view) => handleFileDrop(event, view),
+                  dragover: (event) => { event.preventDefault(); },
+                }),
               ],
             }),
           });
+        };
+
+        const insertAtCursor = (view, text) => {
+          const pos = view.state.selection.main.head;
+          view.dispatch({
+            changes: { from: pos, insert: text },
+            selection: { anchor: pos + text.length },
+          });
+        };
+
+        const uploadFile = async (file) => {
+          if (!activeWorkspaceId.value) return null;
+          const fd = new FormData();
+          fd.append('file', file);
+          const r = await fetch(`/api/workspaces/${activeWorkspaceId.value}/attachments`, {
+            method: 'POST', credentials: 'same-origin', body: fd,
+          });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            showToast('上传失败：' + (d.detail || `HTTP ${r.status}`), 'error', 6000);
+            return null;
+          }
+          return await r.json();
+        };
+
+        const handleClipboardPaste = (event, view) => {
+          const items = Array.from(event.clipboardData?.items || []);
+          // Look for image data on the clipboard (e.g. cmd+shift+ctrl+4 on macOS).
+          const imageItem = items.find(it => it.kind === 'file' && it.type.startsWith('image/'));
+          if (!imageItem) return false;
+          event.preventDefault();
+          const file = imageItem.getAsFile();
+          if (!file) return false;
+          uploadFile(file).then(rec => {
+            if (rec) insertAtCursor(view, rec.md_snippet);
+          });
+          return true;
+        };
+
+        const handleFileDrop = (event, view) => {
+          const files = Array.from(event.dataTransfer?.files || []);
+          if (!files.length) return false;
+          event.preventDefault();
+          (async () => {
+            for (const f of files) {
+              const rec = await uploadFile(f);
+              if (rec) insertAtCursor(view, rec.md_snippet + '\n');
+            }
+          })();
+          return true;
         };
 
         const onBodyChange = () => {
